@@ -1,0 +1,21 @@
+[
+  {
+    "name": "Playlist Smart Search",
+    "description": "Improve Spotify playlist search with smarter filtering, advanced query syntax, and better results inside large playlists.",
+    "preview": "preview.png",
+    "main": "smart-search.js",
+    "readme": "README.md",
+    "authors": [
+      {
+        "name": "Yumpe",
+        "url": "https://github.com/Yumppe"
+      }
+    ],
+    "tags": [
+      "playlist",
+      "search",
+      "filter",
+      "utility"
+    ]
+  }
+]
