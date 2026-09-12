@@ -3,7 +3,7 @@
 (() => {
 'use strict';
 if (window.__smartSearchExtensionLoaded) return;
-window.__smartSearchExtensionLoaded = '1.0.0-rc.10';
+window.__smartSearchExtensionLoaded = '1.0.0-rc.11';
 var SmartSearch;
 (function (SmartSearch) {
     SmartSearch.VERSION = '1.0.0-rc.11';
