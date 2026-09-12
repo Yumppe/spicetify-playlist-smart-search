@@ -1,10 +1,10 @@
-// Smart Search 1.0.0-rc.15-test
-// Release-candidate extension with Spotify-native playlist list integration and compatibility fallback. No telemetry; no remote logging.
+// Smart Search 1.0.0
+// Spicetify extension with Spotify-native playlist list integration and compatibility fallback. No telemetry; no remote logging.
 (() => {
 'use strict';
 var SmartSearch;
 (function (SmartSearch) {
-    SmartSearch.VERSION = '1.0.0-rc.15-test';
+    SmartSearch.VERSION = '1.0.0';
     SmartSearch.CONFIG_KEY = 'smart-search-config-v1';
     SmartSearch.PROJECT_URL = 'https://github.com/Yumppe/spicetify-playlist-smart-search';
     SmartSearch.BUG_REPORT_URL = `${SmartSearch.PROJECT_URL}/issues/new?template=bug_report.md`;
@@ -2658,7 +2658,7 @@ var SmartSearch;
 
         const version = document.createElement('div');
         version.className = 'ss1-version';
-        version.textContent = `Smart Search ${SmartSearch.VERSION} · native-list release candidate · local-only, no telemetry.`;
+        version.textContent = `Smart Search ${SmartSearch.VERSION} · local-only, no telemetry.`;
         content.appendChild(version);
         SmartSearch.S?.PopupModal?.display?.({ title: 'Smart Search', content, isLarge: true });
         // Spotify's modal wrapper can stay narrow even when `isLarge` is requested.
