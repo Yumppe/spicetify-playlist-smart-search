@@ -1,12 +1,10 @@
-// Smart Search 1.0.0-rc.11
+// Smart Search 1.0.0-rc.15-test
 // Release-candidate extension with Spotify-native playlist list integration and compatibility fallback. No telemetry; no remote logging.
 (() => {
 'use strict';
-if (window.__smartSearchExtensionLoaded) return;
-window.__smartSearchExtensionLoaded = '1.0.0-rc.11';
 var SmartSearch;
 (function (SmartSearch) {
-    SmartSearch.VERSION = '1.0.0-rc.11';
+    SmartSearch.VERSION = '1.0.0-rc.15-test';
     SmartSearch.CONFIG_KEY = 'smart-search-config-v1';
     SmartSearch.PROJECT_URL = 'https://github.com/Yumppe/spicetify-playlist-smart-search';
     SmartSearch.BUG_REPORT_URL = `${SmartSearch.PROJECT_URL}/issues/new?template=bug_report.md`;
@@ -52,6 +50,7 @@ var SmartSearch;
         playbackMaintenanceInFlight: false,
         playbackBusy: false,
         routeGeneration: 0,
+        smartRefreshPending: false,
     };
     function sleep(ms) {
         return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1787,6 +1786,7 @@ var SmartSearch;
         const value = input.value || '';
         if (!SmartSearch.smartSyntaxUsed(value))
             return false;
+        const previousQuery = SmartSearch.state.query;
         // Advanced syntax must not reach Spotify's vanilla playlist matcher. Doing so
         // creates the brief AND-filter flash and, more importantly, a mismatched
         // playback context. Stop the native filter event while updating React's text
@@ -1801,6 +1801,26 @@ var SmartSearch;
         if (value !== SmartSearch.state.query)
             SmartSearch.setSmartQuery(value);
         const query = value;
+        const enteringSmartMode = !previousQuery.trim() || !SmartSearch.smartSyntaxUsed(previousQuery);
+        // A playlist may have been edited since our last local snapshot. Refresh once
+        // when a new Smart Search session begins, and do not expose stale cached rows
+        // while that refresh is in flight. Subsequent keystrokes reuse the fresh list.
+        if (enteringSmartMode && SmartSearch.state.playlistId) {
+            SmartSearch.state.smartRefreshPending = true;
+            SmartSearch.state.nativeAdapterMode = 'attaching';
+            Promise.resolve(SmartSearch.loadCurrentPlaylist?.(true))
+                .catch((error) => SmartSearch.consoleWarn('Could not refresh playlist before Smart Search.', error))
+                .finally(() => {
+                SmartSearch.state.smartRefreshPending = false;
+                const current = SmartSearch.state.query;
+                const currentInput = SmartSearch.state.nativeSearchInput || input;
+                if (currentInput && current.trim() && SmartSearch.smartSyntaxUsed(current))
+                    beginNativeSmartMode(currentInput, current);
+            });
+            return true;
+        }
+        if (SmartSearch.state.smartRefreshPending)
+            return true;
         // The matcher is local/synchronous; start patching immediately and re-check on
         // the following microtask in case onClear caused Spotify to remount the list.
         beginNativeSmartMode(input, query);
@@ -1994,6 +2014,28 @@ var SmartSearch;
 var SmartSearch;
 (function (SmartSearch) {
     let settingsMenuItem = null;
+    let nativeBlankConfirmTimer = null;
+    function cancelNativeBlankConfirmation() {
+        if (nativeBlankConfirmTimer !== null) {
+            window.clearTimeout(nativeBlankConfirmTimer);
+            nativeBlankConfirmTimer = null;
+        }
+    }
+    function confirmNativeSearchWasCleared(candidate) {
+        if (nativeBlankConfirmTimer !== null)
+            return;
+        const queryAtSchedule = SmartSearch.state.query;
+        nativeBlankConfirmTimer = window.setTimeout(() => {
+            nativeBlankConfirmTimer = null;
+            if (!queryAtSchedule || SmartSearch.state.query !== queryAtSchedule)
+                return;
+            if (!candidate?.isConnected || String(candidate.value || '').trim())
+                return;
+            SmartSearch.state.smartRefreshPending = false;
+            SmartSearch.endNativeSmartMode();
+            setSmartQuery('');
+        }, 120);
+    }
     function formatDuration(ms) {
         const total = Math.max(0, Math.floor(Number(ms || 0) / 1000));
         return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
@@ -2058,20 +2100,21 @@ var SmartSearch;
 .ss1-help{padding:12px;color:var(--spice-subtext,#b3b3b3);font-size:11px;line-height:1.5;border-top:1px solid color-mix(in srgb,var(--spice-text,#fff) 8%,transparent)}
 .ss1-help code{color:var(--spice-text,#fff)}
 .ss1-collapsed-note{padding:14px 12px;color:var(--spice-subtext,#b3b3b3);font-size:12px}
-.ss1-settings{min-width:min(520px,76vw);color:var(--spice-text,#fff)}
+.ss1-settings{width:100%;max-width:100%;min-width:0;box-sizing:border-box;overflow-x:hidden;color:var(--spice-text,#fff)}
 .ss1-settings-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 0;border-bottom:1px solid color-mix(in srgb,var(--spice-text,#fff) 10%,transparent)}
-.ss1-settings-copy{min-width:0}.ss1-settings-title{font-weight:700}.ss1-settings-desc{margin-top:3px;color:var(--spice-subtext,#b3b3b3);font-size:12px;line-height:1.4}
+.ss1-settings-copy{min-width:0;max-width:100%;overflow-wrap:anywhere}.ss1-settings-title{font-weight:700}.ss1-settings-desc{margin-top:3px;color:var(--spice-subtext,#b3b3b3);font-size:12px;line-height:1.4}
 .ss1-toggle{min-width:48px;height:28px;border:0;border-radius:999px;padding:3px;background:#535353;cursor:pointer;position:relative;flex:0 0 auto}
 .ss1-toggle::after{content:'';position:absolute;top:4px;left:4px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform 120ms ease}
 .ss1-toggle[aria-pressed='true']{background:var(--spice-button,#1ed760)}.ss1-toggle[aria-pressed='true']::after{transform:translateX(20px)}
-.ss1-settings-syntax{padding-top:16px;color:var(--spice-subtext,#b3b3b3);font-size:12px;line-height:1.7}.ss1-settings-syntax code{color:var(--spice-text,#fff)}
+.ss1-settings-syntax{padding-top:16px;max-width:100%;overflow-wrap:anywhere;color:var(--spice-subtext,#b3b3b3);font-size:12px;line-height:1.7}.ss1-settings-syntax code{color:var(--spice-text,#fff);white-space:normal;overflow-wrap:anywhere}
 .ss1-probe-box{margin-top:18px;padding:14px;border-radius:8px;background:color-mix(in srgb,var(--spice-text,#fff) 6%,transparent)}
 .ss1-probe-title{font-weight:700;margin-bottom:5px}.ss1-probe-desc,.ss1-probe-status{color:var(--spice-subtext,#b3b3b3);font-size:12px;line-height:1.5}
 .ss1-probe-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .ss1-version{margin-top:16px;color:var(--spice-subtext,#b3b3b3);font-size:11px}
 .ss1-support{margin-top:16px;padding-top:16px;border-top:1px solid color-mix(in srgb,var(--spice-text,#fff) 10%,transparent)}
 .ss1-support-title{font-weight:700}.ss1-support-desc{margin-top:4px;color:var(--spice-subtext,#b3b3b3);font-size:12px;line-height:1.5}
-.ss1-support-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.ss1-support-link{text-decoration:none}
+.ss1-support-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}.ss1-support-link{display:inline-flex;align-items:center;justify-content:center;min-height:38px;box-sizing:border-box;text-align:center;line-height:1.2;text-decoration:none}.ss1-credits{margin-top:16px;padding-top:14px;border-top:1px solid color-mix(in srgb,var(--spice-text,#fff) 10%,transparent);color:var(--spice-subtext,#b3b3b3);font-size:12px}.ss1-credits strong{color:var(--spice-text,#fff)}
+@media(max-width:700px){.ss1-support-actions{grid-template-columns:1fr}}
 @media(max-width:1000px){.ss1-column-header,.ss1-row{grid-template-columns:38px minmax(220px,2fr) minmax(150px,1fr) 60px}.ss1-date-column{display:none}}
 @media(max-width:760px){.ss1-toolbar{align-items:flex-start;flex-direction:column}.ss1-actions{width:100%}.ss1-column-header,.ss1-row{grid-template-columns:34px minmax(180px,1fr) 56px}.ss1-album-column,.ss1-date-column{display:none}.ss1-shell{padding-left:0;padding-right:0}}
 `;
@@ -2415,6 +2458,7 @@ var SmartSearch;
         });
     }
     function detachNativeSearch() {
+        cancelNativeBlankConfirmation();
         if (SmartSearch.state.nativeSearchInput && SmartSearch.state.nativeSearchListener) {
             SmartSearch.state.nativeSearchInput.removeEventListener('input', SmartSearch.state.nativeSearchListener, true);
             SmartSearch.state.nativeSearchInput.removeEventListener('change', SmartSearch.state.nativeSearchListener, true);
@@ -2425,12 +2469,15 @@ var SmartSearch;
     }
     function syncNativeSearchValue(candidate, event) {
         const value = candidate.value || '';
+        if (value.trim())
+            cancelNativeBlankConfirmation();
         if (event && SmartSearch.smartSyntaxUsed(value) && SmartSearch.interceptSmartInputEvent(candidate, event))
             return;
         if (SmartSearch.smartSyntaxUsed(value)) {
             if (value !== SmartSearch.state.query) {
                 setSmartQuery(value);
-                SmartSearch.beginNativeSmartMode(candidate, value);
+                if (!SmartSearch.state.smartRefreshPending)
+                    SmartSearch.beginNativeSmartMode(candidate, value);
             }
             return;
         }
@@ -2439,12 +2486,16 @@ var SmartSearch;
         // effectively immediate even when Spotify remounts the filtered grid.
         SmartSearch.primeNativeListTarget();
         if (SmartSearch.state.query) {
-            // A React remount can momentarily recreate the controlled input with the
-            // native (blank) filter state while Smart mode is active. Real user edits
-            // arrive as input/change events; polling must not mistake a remount for a
-            // clear action.
-            if (!event && (SmartSearch.state.nativeAdapterMode === 'native' || SmartSearch.state.nativeAdapterMode === 'attaching'))
+            // Spotify's clear (X) control does not always emit an input/change event
+            // that reaches extensions. A React remount can also be blank very briefly,
+            // so confirm that an eventless blank persists before treating it as a real
+            // clear. This prevents Smart Search from re-patching an empty search box.
+            if (!event && !value.trim() && (SmartSearch.state.nativeAdapterMode === 'native' || SmartSearch.state.nativeAdapterMode === 'attaching')) {
+                confirmNativeSearchWasCleared(candidate);
                 return;
+            }
+            cancelNativeBlankConfirmation();
+            SmartSearch.state.smartRefreshPending = false;
             SmartSearch.endNativeSmartMode();
             setSmartQuery('');
         }
@@ -2503,6 +2554,7 @@ var SmartSearch;
         restoreNativeTracklist();
         SmartSearch.state.query = '';
         SmartSearch.state.filtered = [];
+        SmartSearch.state.smartRefreshPending = false;
         SmartSearch.state.nativeSearchMissingSince = 0;
         document.getElementById(SmartSearch.RESULTS_HOST_ID)?.remove();
         SmartSearch.state.resultsHost = null;
@@ -2599,11 +2651,44 @@ var SmartSearch;
         support.append(supportTitle, supportDesc, supportActions);
         content.appendChild(support);
 
+        const credits = document.createElement('div');
+        credits.className = 'ss1-credits';
+        credits.innerHTML = '<strong>Credits</strong><br>Created by Yumpe.';
+        content.appendChild(credits);
+
         const version = document.createElement('div');
         version.className = 'ss1-version';
         version.textContent = `Smart Search ${SmartSearch.VERSION} · native-list release candidate · local-only, no telemetry.`;
         content.appendChild(version);
-        SmartSearch.S?.PopupModal?.display?.({ title: 'Smart Search', content, isLarge: false });
+        SmartSearch.S?.PopupModal?.display?.({ title: 'Smart Search', content, isLarge: true });
+        // Spotify's modal wrapper can stay narrow even when `isLarge` is requested.
+        // Resize only the wrapper that contains this settings panel and make every
+        // intermediate container shrinkable so no horizontal scrollbar is needed.
+        window.setTimeout(() => {
+            try {
+                let node = content;
+                const maxWidth = 'min(780px, calc(100vw - 96px))';
+                for (let i = 0; node && i < 6; i++, node = node.parentElement) {
+                    node.style.minWidth = '0';
+                    node.style.maxWidth = '100%';
+                    node.style.boxSizing = 'border-box';
+                    node.style.overflowX = 'hidden';
+                    if (node.getAttribute?.('role') === 'dialog') {
+                        node.style.width = maxWidth;
+                        node.style.maxWidth = maxWidth;
+                        break;
+                    }
+                }
+                // Fallback for Spotify builds where the role lives on a higher wrapper.
+                const dialog = content.closest?.('[role="dialog"]');
+                if (dialog) {
+                    dialog.style.width = maxWidth;
+                    dialog.style.maxWidth = maxWidth;
+                    dialog.style.overflowX = 'hidden';
+                }
+            }
+            catch { }
+        }, 0);
     }
     SmartSearch.showSettings = showSettings;
     function registerSettingsMenu() {
@@ -2659,6 +2744,7 @@ var SmartSearch;
                 SmartSearch.state.playbackSession.active = false;
             SmartSearch.state.query = '';
             SmartSearch.state.filtered = [];
+            SmartSearch.state.smartRefreshPending = false;
             SmartSearch.state.nativeSearchMissingSince = 0;
             restoreNativeTracklist();
             setNativeSmartState(false);
