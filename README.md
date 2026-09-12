@@ -1,0 +1,1 @@
+# spicetify-playlist-smart-search
