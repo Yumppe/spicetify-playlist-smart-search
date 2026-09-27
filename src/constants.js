@@ -1,0 +1,18 @@
+export const VERSION = '1.1';
+export const RELEASE_SEEN_KEY = 'smart-search:last-seen-release';
+export const RELEASE_NOTES_REVISION = 3;
+export const CONFIG_KEY = 'smart-search-config-v2';
+export const PROJECT_URL = 'https://github.com/Yumppe/spicetify-playlist-smart-search';
+export const CHANGELOG_URL = `${PROJECT_URL}/blob/main/CHANGELOG.md`;
+export const BUG_REPORT_URL = `${PROJECT_URL}/issues/new?template=bug_report.md`;
+export const FEATURE_REQUEST_URL = `${PROJECT_URL}/issues/new?template=feature_request.md`;
+export const STYLE_ID = 'smart-search-production-style';
+export const RESULTS_HOST_ID = 'smart-search-results-root';
+export const CACHE_TTL_MS = 5 * 60 * 1000;
+export const PAGE_SIZE = 50;
+export const RENDER_CHUNK = 80;
+export const PLAYBACK_BUFFER_TARGET = 24;
+export const PLAYBACK_BUFFER_LOW_WATER = 8;
+export const PLAYBACK_REFILL_CHUNK = 16;
+export const MUTATION_DEBOUNCE_MS = 450;
+export const MUTATION_REFRESH_COOLDOWN_MS = 1800;

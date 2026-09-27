@@ -1,0 +1,14 @@
+{
+  "name": "spicetify-playlist-smart-search",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "build": "esbuild src/index.js --bundle --format=iife --platform=browser --target=es2020 --outfile=dist/smart-search.js --banner:js=\"// Playlist Smart Search 1.1\"",
+    "check": "npm test && npm run build"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
