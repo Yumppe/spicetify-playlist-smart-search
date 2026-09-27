@@ -1,7 +1,6 @@
-// Playlist Smart Search 1.1.0-release
+// Playlist Smart Search 1.1
 (() => {
   'use strict';
-
   // src/state.js
   const __mod0 = (() => {
     const state = {
@@ -22,9 +21,6 @@
       nativeSearchInput: null,
       nativeSearchListener: null,
       nativeSearchMissingSince: 0,
-      nativeAdapterMode: 'idle',
-      nativeAdapterError: null,
-      nativeAdapterResultCount: 0,
       resultsHost: null,
       resultsList: null,
       resultsSentinel: null,
@@ -39,10 +35,12 @@
       lastYearMetadataSummary: null,
       mutationWatcher: null,
       lastPlaylistFingerprint: '',
+      sortState: { key: 'custom', direction: 'asc', source: 'default' },
+      sortSignature: 'custom:asc',
+      syntaxHelpHost: null,
     };
     return { state };
   })();
-
   // src/utils.js
   const __mod1 = (() => {
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -97,16 +95,16 @@
       }
       return undefined;
     }
-    return { safeClone, normalizeText, safeErrorMessage, consoleWarn, consoleError, getPath, firstDefined, sleep };
+    return { sleep, safeClone, normalizeText, safeErrorMessage, consoleWarn, consoleError, getPath, firstDefined };
   })();
-
   // src/constants.js
   const __mod2 = (() => {
-    const VERSION = '1.1.0-release';
+    const VERSION = '1.1';
     const RELEASE_SEEN_KEY = 'smart-search:last-seen-release';
-    const RELEASE_NOTES_REVISION = 2;
+    const RELEASE_NOTES_REVISION = 3;
     const CONFIG_KEY = 'smart-search-config-v2';
     const PROJECT_URL = 'https://github.com/Yumppe/spicetify-playlist-smart-search';
+    const CHANGELOG_URL = `${PROJECT_URL}/blob/main/CHANGELOG.md`;
     const BUG_REPORT_URL = `${PROJECT_URL}/issues/new?template=bug_report.md`;
     const FEATURE_REQUEST_URL = `${PROJECT_URL}/issues/new?template=feature_request.md`;
     const STYLE_ID = 'smart-search-production-style';
@@ -119,12 +117,12 @@
     const PLAYBACK_REFILL_CHUNK = 16;
     const MUTATION_DEBOUNCE_MS = 450;
     const MUTATION_REFRESH_COOLDOWN_MS = 1800;
-    return { VERSION, RELEASE_SEEN_KEY, RELEASE_NOTES_REVISION, CONFIG_KEY, PROJECT_URL, BUG_REPORT_URL, FEATURE_REQUEST_URL, STYLE_ID, RESULTS_HOST_ID, CACHE_TTL_MS, PAGE_SIZE, RENDER_CHUNK, PLAYBACK_BUFFER_TARGET, PLAYBACK_BUFFER_LOW_WATER, PLAYBACK_REFILL_CHUNK, MUTATION_DEBOUNCE_MS, MUTATION_REFRESH_COOLDOWN_MS };
+    return { VERSION, RELEASE_SEEN_KEY, RELEASE_NOTES_REVISION, CONFIG_KEY, PROJECT_URL, CHANGELOG_URL, BUG_REPORT_URL, FEATURE_REQUEST_URL, STYLE_ID, RESULTS_HOST_ID, CACHE_TTL_MS, PAGE_SIZE, RENDER_CHUNK, PLAYBACK_BUFFER_TARGET, PLAYBACK_BUFFER_LOW_WATER, PLAYBACK_REFILL_CHUNK, MUTATION_DEBOUNCE_MS, MUTATION_REFRESH_COOLDOWN_MS };
   })();
-
   // src/ui/styles.js
   const __mod3 = (() => {
     const { STYLE_ID, RESULTS_HOST_ID } = __mod2;
+
     function injectStyles() {
       if (document.getElementById(STYLE_ID)) return;
       const style = document.createElement('style');
@@ -134,6 +132,7 @@
     #${RESULTS_HOST_ID}[hidden]{display:none!important}
     #${RESULTS_HOST_ID} *{box-sizing:border-box}
     .smart-search-native-active{box-shadow:0 0 0 1px var(--spice-button,#1ed760)!important}
+    .smart-search-advanced-view [data-testid="playlist-tracklist"],.smart-search-advanced-view .main-trackList-trackList,.smart-search-advanced-view [role="grid"]{display:none!important}
     .ss1-shell{width:100%;padding:0 8px 18px}
     .ss1-toolbar{min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 8px 8px 12px;border-bottom:1px solid color-mix(in srgb,var(--spice-text,#fff) 10%,transparent)}
     .ss1-summary{display:flex;align-items:center;gap:9px;min-width:0;color:var(--spice-subtext,#b3b3b3);font-size:13px}.ss1-summary strong{color:var(--spice-text,#fff);font-size:14px}
@@ -146,32 +145,47 @@
     .ss1-column-header,.ss1-row{display:grid;grid-template-columns:42px minmax(240px,2fr) minmax(170px,1fr) minmax(135px,.8fr) 64px;align-items:center;column-gap:12px}
     .ss1-column-header{position:sticky;top:0;z-index:2;min-height:36px;padding:0 12px;color:var(--spice-subtext,#b3b3b3);font-size:12px;border-bottom:1px solid color-mix(in srgb,var(--spice-text,#fff) 10%,transparent);background:var(--spice-main,#121212)}
     .ss1-row{position:relative;min-height:56px;padding:4px 12px;border-radius:4px;color:var(--spice-text,#fff)}.ss1-row:hover,.ss1-row:focus-within{background:color-mix(in srgb,var(--spice-text,#fff) 9%,transparent)}.ss1-row.is-playing .ss1-title{color:var(--spice-button,#1ed760)}
-    .ss1-row-number{position:relative;text-align:right;color:var(--spice-subtext,#b3b3b3);font-variant-numeric:tabular-nums}.ss1-row-play{position:absolute;right:-2px;top:50%;translate:0 -50%;display:none;width:28px;height:28px;border:0;background:transparent;color:var(--spice-text,#fff);cursor:pointer}.ss1-row:hover .ss1-row-index,.ss1-row:focus-within .ss1-row-index{visibility:hidden}.ss1-row:hover .ss1-row-play,.ss1-row:focus-within .ss1-row-play{display:block}
+    .ss1-row-number{position:relative;text-align:right;color:var(--spice-subtext,#b3b3b3);font-variant-numeric:tabular-nums;min-height:40px;display:flex;align-items:center;justify-content:flex-end}
+    .ss1-row-play{position:absolute;right:-5px;top:50%;translate:0 -50%;display:none;width:36px;height:36px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--spice-text,#fff);cursor:pointer;align-items:center;justify-content:center}.ss1-row-play svg{width:20px;height:20px;display:block;fill:currentColor}.ss1-row-play:hover{background:color-mix(in srgb,var(--spice-text,#fff) 10%,transparent)}
+    .ss1-row:hover .ss1-row-index,.ss1-row:focus-within .ss1-row-index{visibility:hidden}.ss1-row:hover .ss1-row-play,.ss1-row:focus-within .ss1-row-play{display:flex}
     .ss1-title-cell{display:flex;align-items:center;gap:12px;min-width:0}.ss1-cover,.ss1-cover-placeholder{width:40px;height:40px;border-radius:4px;background:#282828;flex:0 0 auto}.ss1-cover{object-fit:cover}.ss1-title-stack,.ss1-title,.ss1-artists,.ss1-album,.ss1-added{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ss1-title{font-size:14px}.ss1-artists,.ss1-album,.ss1-added,.ss1-duration{font-size:12px;color:var(--spice-subtext,#b3b3b3)}.ss1-duration{text-align:right;font-variant-numeric:tabular-nums}.ss1-sentinel{height:1px}
-    .ss1-help{padding:12px;color:var(--spice-subtext,#b3b3b3);font-size:11px;line-height:1.55;border-top:1px solid color-mix(in srgb,var(--spice-text,#fff) 8%,transparent)}.ss1-help code{color:var(--spice-text,#fff)}.ss1-collapsed-note{padding:14px 12px;color:var(--spice-subtext,#b3b3b3);font-size:12px}
+    .ss1-collapsed-note{padding:14px 12px;color:var(--spice-subtext,#b3b3b3);font-size:12px}
+
+    .ss1-syntax-assist{position:fixed;z-index:100000;max-height:min(360px,45vh);overflow:auto;border-radius:20px;background:color-mix(in srgb,var(--spice-main,#121212) 96%,#fff 4%);border:1px solid color-mix(in srgb,var(--spice-text,#fff) 11%,transparent);box-shadow:0 18px 54px rgba(0,0,0,.45);padding:8px;font-family:var(--encore-body-font-stack,inherit);color:var(--spice-text,#fff);box-sizing:border-box;backdrop-filter:blur(18px)}
+    .ss1-syntax-assist[hidden]{display:none!important}.ss1-syntax-assist-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px 7px}.ss1-syntax-assist-head strong{font-size:12px}.ss1-syntax-assist-head span{font-size:11px;color:var(--spice-subtext,#b3b3b3)}
+    .ss1-syntax-assist-list{display:grid;gap:4px}.ss1-syntax-assist-item{width:100%;min-height:42px;border:0;border-radius:14px;padding:8px 11px;background:transparent;color:var(--spice-text,#fff);display:flex;align-items:center;justify-content:space-between;gap:14px;text-align:left;cursor:pointer;font:inherit}.ss1-syntax-assist-item:hover,.ss1-syntax-assist-item:focus-visible{background:color-mix(in srgb,var(--spice-text,#fff) 9%,transparent);outline:none}.ss1-syntax-assist-item code{font:600 12px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--spice-text,#fff)}.ss1-syntax-assist-item span{font-size:11px;color:var(--spice-subtext,#b3b3b3);white-space:nowrap}
+
     .ss1-settings{width:100%;max-width:100%;min-width:0;box-sizing:border-box;overflow-x:hidden;color:var(--spice-text,#fff)}.ss1-settings-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 0;border-bottom:1px solid color-mix(in srgb,var(--spice-text,#fff) 10%,transparent)}.ss1-settings-copy{min-width:0;overflow-wrap:anywhere}.ss1-settings-title{font-weight:700}.ss1-settings-desc{margin-top:3px;color:var(--spice-subtext,#b3b3b3);font-size:12px;line-height:1.4}
     .ss1-toggle{min-width:48px;height:28px;border:0;border-radius:999px;padding:3px;background:#535353;cursor:pointer;position:relative;flex:0 0 auto}.ss1-toggle::after{content:'';position:absolute;top:4px;left:4px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform 120ms ease}.ss1-toggle[aria-pressed='true']{background:var(--spice-button,#1ed760)}.ss1-toggle[aria-pressed='true']::after{transform:translateX(20px)}
     .ss1-panel{margin-top:18px;padding:14px;border-radius:10px;background:color-mix(in srgb,var(--spice-text,#fff) 6%,transparent);border:1px solid color-mix(in srgb,var(--spice-text,#fff) 7%,transparent)}.ss1-panel-title{font-weight:700;margin-bottom:7px}.ss1-panel-desc,.ss1-muted{color:var(--spice-subtext,#b3b3b3);font-size:12px;line-height:1.5}.ss1-collapsible{padding:0}.ss1-panel-summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:16px;cursor:pointer;padding:14px;user-select:none}.ss1-panel-summary::-webkit-details-marker{display:none}.ss1-panel-summary .ss1-panel-title{margin:0}.ss1-panel-chevron{color:var(--spice-subtext,#b3b3b3);font-size:18px;transition:transform 120ms ease}.ss1-collapsible[open] .ss1-panel-chevron{transform:rotate(180deg)}.ss1-panel-body{padding:0 14px 14px;border-top:1px solid color-mix(in srgb,var(--spice-text,#fff) 8%,transparent)}.ss1-tutorial-grid{display:grid;grid-template-columns:minmax(150px,auto) 1fr;gap:10px 18px;margin-top:14px;align-items:start;font-size:12px}.ss1-tutorial-grid>code{color:var(--spice-text,#fff);white-space:nowrap;font-weight:700}.ss1-tutorial-meaning{display:flex;gap:7px;min-width:0}.ss1-tutorial-meaning strong{min-width:96px}.ss1-tutorial-meaning span{color:var(--spice-subtext,#b3b3b3)}
     .ss1-diag-grid{display:grid;grid-template-columns:minmax(150px,1fr) auto;gap:7px 14px;font-size:12px;margin-top:12px}.ss1-diag-ok{color:var(--spice-button,#1ed760)}.ss1-diag-bad{color:#f6c453}.ss1-diag-neutral{color:var(--spice-subtext,#b3b3b3)}.ss1-panel-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.ss1-action-feedback{margin-top:10px;padding:8px 10px;border-radius:7px;background:color-mix(in srgb,var(--spice-text,#fff) 6%,transparent);font-size:12px;line-height:1.4;color:var(--spice-subtext,#b3b3b3)}.ss1-feedback-ok{color:var(--spice-button,#1ed760)}.ss1-feedback-warn{color:#f6c453}.ss1-feedback-error{color:#f15e6c}.ss1-pre{margin-top:10px;padding:10px;border-radius:6px;background:rgba(0,0,0,.25);font:11px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;max-height:220px;overflow:auto}.ss1-version{margin-top:16px;color:var(--spice-subtext,#b3b3b3);font-size:11px}
-    .ss1-release-notes{min-width:0;color:var(--spice-text,#fff);padding:2px 0}.ss1-release-header{padding:12px 14px;border-radius:10px;background:color-mix(in srgb,var(--spice-text,#fff) 6%,transparent);border:1px solid color-mix(in srgb,var(--spice-text,#fff) 7%,transparent)}.ss1-release-kicker{font-size:15px;font-weight:800}.ss1-release-subtitle{margin-top:3px;color:var(--spice-subtext,#b3b3b3);font-size:12px}.ss1-release-list{margin:14px 0 0;padding:0;list-style:none;color:var(--spice-text,#fff);font-size:13px;line-height:1.5}.ss1-release-list li{position:relative;padding:9px 12px 9px 28px;border-bottom:1px solid color-mix(in srgb,var(--spice-text,#fff) 7%,transparent)}.ss1-release-list li::before{content:'•';position:absolute;left:10px;top:8px;color:var(--spice-button,#1ed760);font-weight:900}.ss1-release-list li:last-child{border-bottom:0}.ss1-release-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid color-mix(in srgb,var(--spice-text,#fff) 8%,transparent)}.ss1-release-actions .ss1-button{min-width:118px}
-    @media(max-width:760px){.ss1-tutorial-grid{grid-template-columns:1fr}.ss1-tutorial-meaning{display:block}.ss1-tutorial-meaning strong{display:block;margin-bottom:2px}}
-    @media(max-width:1000px){.ss1-column-header,.ss1-row{grid-template-columns:38px minmax(220px,2fr) minmax(150px,1fr) 60px}.ss1-date-column{display:none}}@media(max-width:760px){.ss1-toolbar{align-items:flex-start;flex-direction:column}.ss1-actions{width:100%}.ss1-column-header,.ss1-row{grid-template-columns:34px minmax(180px,1fr) 56px}.ss1-album-column,.ss1-date-column{display:none}.ss1-shell{padding-left:0;padding-right:0}.ss1-syntax-grid{grid-template-columns:auto 1fr}.ss1-syntax-grid .ss1-syntax-description{grid-column:1/-1}}
+
+    .ss1-release-overlay{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:var(--ss1-release-overlay-pad,24px);background:rgba(0,0,0,.62);backdrop-filter:blur(3px);box-sizing:border-box}
+.ss1-release-dialog{width:var(--ss1-release-dialog-width,min(68vw,1800px));max-width:100%;max-height:var(--ss1-release-dialog-max-height,calc(100vh - 48px));display:flex;flex-direction:column;min-width:0;margin:0;border-radius:32px;overflow:hidden;background:var(--spice-main,#121212);border:1px solid color-mix(in srgb,var(--spice-text,#fff) 8%,transparent);box-shadow:0 28px 96px rgba(0,0,0,.56);color:var(--spice-text,#fff);font-family:var(--encore-body-font-stack,inherit)}
+.ss1-release-topbar{min-height:68px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:0 clamp(20px,2vw,30px);border-bottom:1px solid color-mix(in srgb,var(--spice-text,#fff) 9%,transparent);flex:0 0 auto}.ss1-release-topbar strong{font-size:17px;font-weight:800;letter-spacing:-.015em}.ss1-release-close{width:38px;height:38px;border:0;border-radius:50%;display:grid;place-items:center;background:transparent;color:var(--spice-subtext,#b3b3b3);font:300 28px/1 var(--encore-body-font-stack,inherit);cursor:pointer}.ss1-release-close:hover,.ss1-release-close:focus-visible{background:color-mix(in srgb,var(--spice-text,#fff) 9%,transparent);color:var(--spice-text,#fff);outline:none}
+.ss1-release-notes{min-width:0;color:var(--spice-text,#fff);padding:clamp(20px,2vw,34px);background:var(--spice-main,#121212);font-family:var(--encore-body-font-stack,inherit);overflow:auto;overscroll-behavior:contain;flex:1 1 auto}
+.ss1-release-hero{display:flex;align-items:center;gap:clamp(16px,1.8vw,24px);padding:0 2px clamp(18px,2vw,24px)}.ss1-release-app-icon{width:68px;height:68px;border-radius:23px;display:grid;place-items:center;flex:0 0 auto;background:color-mix(in srgb,var(--spice-button,#1ed760) 90%,#fff);color:#06240f;font-size:28px;font-weight:900;box-shadow:0 10px 34px rgba(0,0,0,.28)}.ss1-release-hero-copy{min-width:0;flex:1}.ss1-release-overline{font-size:10.5px;line-height:1.2;letter-spacing:.13em;font-weight:850;color:var(--spice-button,#1ed760)}.ss1-release-heading{margin-top:5px;font-size:clamp(26px,2.4vw,38px);line-height:1.05;font-weight:820;letter-spacing:-.04em}.ss1-release-subtitle{margin-top:8px;color:var(--spice-subtext,#b3b3b3);font-size:13px;line-height:1.45}.ss1-release-version-chip{display:inline-flex;align-items:center;margin-top:11px;min-height:28px;padding:0 11px;border-radius:999px;background:color-mix(in srgb,var(--spice-button,#1ed760) 14%,transparent);color:var(--spice-button,#1ed760);font-size:11px;font-weight:800}
+.ss1-release-sections{display:grid;grid-template-columns:1fr;gap:11px}.ss1-release-section{padding:16px 20px;border-radius:22px;background:color-mix(in srgb,var(--spice-text,#fff) 5%,transparent);border:1px solid color-mix(in srgb,var(--spice-text,#fff) 7%,transparent)}.ss1-release-section-header{display:flex;align-items:center;gap:10px;font-size:14px}.ss1-release-section-icon{width:32px;height:32px;border-radius:11px;display:grid;place-items:center;background:color-mix(in srgb,var(--spice-text,#fff) 8%,transparent);font-size:13px;font-weight:900}.ss1-release-section-fixed .ss1-release-section-icon{background:color-mix(in srgb,#78d993 16%,transparent);color:#78d993}.ss1-release-section-improved .ss1-release-section-icon{background:color-mix(in srgb,#8ab4f8 16%,transparent);color:#8ab4f8}.ss1-release-section-new .ss1-release-section-icon{background:color-mix(in srgb,#c6a7ff 16%,transparent);color:#c6a7ff}.ss1-release-section-list{margin:10px 0 0;padding-left:20px;color:var(--spice-subtext,#b3b3b3);font-size:13px;line-height:1.45;max-width:none}.ss1-release-section-list li+li{margin-top:4px}.ss1-release-section-list li::marker{color:color-mix(in srgb,var(--spice-text,#fff) 45%,transparent)}
+.ss1-release-footer{display:grid;grid-template-columns:minmax(0,1fr) minmax(130px,180px);gap:12px;align-items:stretch;margin-top:16px}.ss1-release-links{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:0}.ss1-release-link{min-height:44px;padding:0 14px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;text-align:center;color:var(--spice-text,#fff);background:color-mix(in srgb,var(--spice-text,#fff) 8%,transparent);font-size:12.5px;font-weight:760;line-height:1;box-sizing:border-box;transition:background-color 120ms ease,transform 90ms ease}.ss1-release-link:hover{background:color-mix(in srgb,var(--spice-text,#fff) 13%,transparent);transform:translateY(-1px)}.ss1-release-link-icon{width:21px;height:21px;border-radius:50%;display:grid;place-items:center;background:color-mix(in srgb,var(--spice-text,#fff) 8%,transparent);font-size:11px;font-weight:900}.ss1-release-done{width:100%;min-height:44px;margin:0;border:0;border-radius:999px;background:var(--spice-button,#1ed760);color:#071b0d!important;font:inherit;font-size:13.5px;font-weight:850;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:filter 120ms ease,transform 90ms ease}.ss1-release-done:hover{filter:brightness(1.06);transform:translateY(-1px)}.ss1-release-done:active{transform:scale(.99)}.ss1-release-link:focus-visible,.ss1-release-done:focus-visible{outline:2px solid var(--spice-text,#fff);outline-offset:2px}
+@media(max-width:700px){.ss1-release-overlay{padding:12px}.ss1-release-dialog{border-radius:24px}.ss1-release-topbar{min-height:58px;padding:0 16px}.ss1-release-notes{padding:16px}.ss1-release-hero{align-items:flex-start;gap:13px}.ss1-release-app-icon{width:52px;height:52px;border-radius:17px}.ss1-release-heading{font-size:25px}.ss1-release-section{padding:15px;border-radius:20px}.ss1-release-footer{grid-template-columns:1fr}.ss1-release-links{grid-template-columns:1fr}.ss1-release-done{min-height:48px}}
+@media(max-width:760px){.ss1-tutorial-grid{grid-template-columns:1fr}.ss1-tutorial-meaning{display:block}.ss1-tutorial-meaning strong{display:block;margin-bottom:2px}.ss1-syntax-assist{max-width:calc(100vw - 24px)}}
+    @media(max-width:1000px){.ss1-column-header,.ss1-row{grid-template-columns:38px minmax(220px,2fr) minmax(150px,1fr) 60px}.ss1-date-column{display:none}}
+    @media(max-width:760px){.ss1-toolbar{align-items:flex-start;flex-direction:column}.ss1-actions{width:100%;justify-content:flex-end}.ss1-column-header,.ss1-row{grid-template-columns:34px minmax(180px,1fr) 56px}.ss1-album-column,.ss1-date-column{display:none}.ss1-shell{padding-left:0;padding-right:0}}
     `;
       document.head.appendChild(style);
     }
     return { injectStyles };
   })();
-
   // src/config.js
   const __mod4 = (() => {
     const { CONFIG_KEY } = __mod2;
     const { state } = __mod0;
     const { safeClone } = __mod1;
+
     const DEFAULT_CONFIG = {
       enabled: true,
       resultsCollapsed: false,
       showSyntaxHelp: true,
-      preferNativeRows: true,
       livePlaylistRefresh: true,
     };
 
@@ -184,7 +198,6 @@
           enabled: parsed?.enabled !== false,
           resultsCollapsed: Boolean(parsed?.resultsCollapsed),
           showSyntaxHelp: parsed?.showSyntaxHelp !== false,
-          preferNativeRows: parsed?.preferNativeRows !== false,
           livePlaylistRefresh: parsed?.livePlaylistRefresh !== false,
         };
       } catch {
@@ -203,12 +216,12 @@
       saveConfig(next);
       return next;
     }
-    return { loadConfig, saveConfig, updateConfig, DEFAULT_CONFIG };
+    return { DEFAULT_CONFIG, loadConfig, saveConfig, updateConfig };
   })();
-
   // src/search/parser.js
   const __mod5 = (() => {
     const { normalizeText } = __mod1;
+
     const SYNTAX_REFERENCE = [
       { token: 'text', name: 'Normal search', description: 'Spotify playlist search.', example: 'Mora', advanced: false },
       { token: ';', name: 'OR', description: 'Match either side.', example: 'Mora;Quevedo' },
@@ -389,12 +402,12 @@
     function describeParseErrors(errors) {
       return errors?.length ? errors.join(' ') : '';
     }
-    return { parseQuery, smartSyntaxUsed, describeParseErrors, SYNTAX_REFERENCE };
+    return { SYNTAX_REFERENCE, parseQuery, smartSyntaxUsed, describeParseErrors };
   })();
-
   // src/spotify/capabilities.js
   const __mod6 = (() => {
     const { state } = __mod0;
+
     const PLAYLIST_DEFINITION_NAMES = [
       'FetchPlaylistContents',
       'fetchPlaylist',
@@ -412,10 +425,8 @@
 
     function graphQLDefinitionPools(S = state.S ?? globalThis.Spicetify) {
       const graphQL = S?.GraphQL;
-      return [
-        graphQL?.Definitions,
-        graphQL?.QueryDefinitions,
-      ].filter((pool, index, all) => pool && typeof pool === 'object' && all.indexOf(pool) === index);
+      return [graphQL?.Definitions, graphQL?.QueryDefinitions]
+        .filter((pool, index, all) => pool && typeof pool === 'object' && all.indexOf(pool) === index);
     }
 
     function playlistGraphQLDefinitions(S = state.S ?? globalThis.Spicetify) {
@@ -432,7 +443,7 @@
         for (const [key, definition] of Object.entries(pool)) {
           if (!definition || seen.has(definition)) continue;
           const op = operationName(definition);
-          if (/playlist/i.test(key) && /contents/i.test(key) || /playlist/i.test(op) && /contents/i.test(op)) {
+          if ((/playlist/i.test(key) && /contents/i.test(key)) || (/playlist/i.test(op) && /contents/i.test(op))) {
             seen.add(definition);
             found.push([op || key, definition]);
           }
@@ -473,7 +484,6 @@
         silentAddToQueue: typeof S?.addToQueue === 'function',
         platformAddToQueue: typeof playerApi?.addToQueue === 'function',
         clearQueue: typeof playerApi?.clearQueue === 'function',
-        updateContext: typeof playerApi?.updateContext === 'function',
         nativeSetQueue: Boolean(queueClient?.setQueue && queueCore),
         queueState: Boolean(queueController?._queueState),
       };
@@ -484,150 +494,31 @@
       const graphQLReady = c.graphqlRequest && c.graphqlPlaylistDefinition;
       const graphQLStatus = graphQLReady ? 'Ready' : c.graphqlRequest ? 'Not exposed' : 'Unavailable';
       const graphQLTone = graphQLReady ? 'ok' : c.playlistGetContents ? 'neutral' : 'warn';
-      const nativeStatus = state.nativeAdapterMode === 'native'
-        ? 'Active'
-        : state.nativeAdapterMode === 'fallback'
-          ? 'Fallback'
-          : state.nativeAdapterMode === 'attaching'
-            ? 'Checking…'
-            : 'Not tested';
-      const nativeTone = state.nativeAdapterMode === 'fallback' ? 'warn' : state.nativeAdapterMode === 'native' ? 'ok' : 'neutral';
 
       return [
         { name: 'Playlist API', status: c.playlistGetContents ? 'Available' : 'Unavailable', tone: c.playlistGetContents ? 'ok' : 'warn', note: 'Primary playlist source' },
-        { name: 'GraphQL fallback', status: graphQLStatus, tone: graphQLTone, note: graphQLReady ? `Fallback definition: ${c.graphqlPlaylistDefinitionNames[0]}` : c.playlistGetContents ? 'Not needed unless the Playlist API fails' : 'No compatible playlist definition detected' },
-        { name: 'Release-year lookup', status: c.cosmosAsync ? 'Available' : 'Unavailable', tone: c.cosmosAsync ? 'ok' : 'warn', note: 'Used only when a year filter needs missing release dates' },
-        { name: 'Native playlist rows', status: nativeStatus, tone: nativeTone, note: state.nativeAdapterMode === 'idle' ? 'Checked when Smart Search is active' : `Adapter: ${state.nativeAdapterMode}` },
-        { name: 'Silent queue API', status: c.silentAddToQueue ? 'Available' : 'Unavailable', tone: c.silentAddToQueue ? 'ok' : 'neutral', note: 'Preferred compatibility queue' },
-        { name: 'Platform queue API', status: c.platformAddToQueue ? 'Available' : 'Unavailable', tone: c.platformAddToQueue ? 'ok' : 'neutral', note: 'Queue fallback' },
-        { name: 'Private setQueue bridge', status: c.nativeSetQueue ? 'Available' : 'Unavailable', tone: c.nativeSetQueue ? 'ok' : 'neutral', note: 'Optional native filtered playback' },
-        { name: 'Queue clearing', status: c.clearQueue ? 'Available' : 'Unavailable', tone: c.clearQueue ? 'ok' : 'neutral', note: 'Compatibility playback helper' },
-        { name: 'Playback context sync', status: c.updateContext ? 'Available' : 'Unavailable', tone: c.updateContext ? 'ok' : 'neutral', note: 'Optional; failure is non-fatal' },
-        { name: 'Settings modal', status: c.popupModal ? 'Available' : 'Unavailable', tone: c.popupModal ? 'ok' : 'warn', note: 'Settings UI' },
+        { name: 'GraphQL fallback', status: graphQLStatus, tone: graphQLTone, note: graphQLReady ? `Fallback definition: ${c.graphqlPlaylistDefinitionNames[0]}` : c.playlistGetContents ? 'Only needed if Playlist API fails' : 'No compatible playlist definition detected' },
+        { name: 'Release-year lookup', status: c.cosmosAsync ? 'Available' : 'Unavailable', tone: c.cosmosAsync ? 'ok' : 'warn', note: 'Used when year metadata is missing' },
+        { name: 'Smart Search result view', status: 'Built in', tone: 'ok', note: 'Advanced searches no longer patch Spotify React rows' },
+        { name: 'Queue-first playback', status: c.nativeSetQueue && c.playerNext ? 'Available' : 'Fallback', tone: c.nativeSetQueue && c.playerNext ? 'ok' : 'warn', note: 'Starts filtered tracks with setQueue + Next to avoid false playback toasts' },
+        { name: 'Private setQueue bridge', status: c.nativeSetQueue ? 'Available' : 'Unavailable', tone: c.nativeSetQueue ? 'ok' : 'neutral', note: 'Preferred filtered automatic queue' },
+        { name: 'Manual queue readback', status: c.queueState ? 'Available' : 'Unavailable', tone: c.queueState ? 'ok' : 'warn', note: 'Preserves songs explicitly added by the user' },
+        { name: 'Silent queue API', status: c.silentAddToQueue ? 'Available' : 'Unavailable', tone: c.silentAddToQueue ? 'ok' : 'neutral', note: 'Compatibility queue fallback' },
+        { name: 'Platform queue API', status: c.platformAddToQueue ? 'Available' : 'Unavailable', tone: c.platformAddToQueue ? 'ok' : 'neutral', note: 'Secondary queue fallback' },
+        { name: 'Settings modal', status: c.popupModal ? 'Available' : 'Unavailable', tone: c.popupModal ? 'ok' : 'warn', note: 'Settings and update UI' },
         { name: 'Settings menu', status: c.menuItem ? 'Available' : 'Unavailable', tone: c.menuItem ? 'ok' : 'neutral', note: 'Profile-menu entry' },
       ];
     }
     return { graphQLDefinitionPools, playlistGraphQLDefinitions, detectCapabilities, capabilityRows };
   })();
-
-  // src/events.js
-  const __mod7 = (() => {
-    const listeners = new Map();
-
-    function on(event, handler) {
-      if (!listeners.has(event)) listeners.set(event, new Set());
-      listeners.get(event).add(handler);
-      return () => listeners.get(event)?.delete(handler);
-    }
-
-    function emit(event, payload) {
-      for (const handler of listeners.get(event) ?? []) {
-        try { handler(payload); } catch (error) { console.warn('[Smart Search] event handler failed', event, error); }
-      }
-    }
-    return { on, emit };
-  })();
-
-  // src/ui/dom.js
-  const __mod8 = (() => {
-    const { state } = __mod0;
-    function findPlaylistPage() {
-      return document.querySelector('[data-testid="playlist-page"]') || document.querySelector('main');
-    }
-
-    function findTracklistContainer() {
-      const page = findPlaylistPage();
-      if (!page) return null;
-      return page.querySelector('[data-testid="playlist-tracklist"]')
-        || page.querySelector('.main-trackList-trackList')
-        || page.querySelector('[role="grid"]');
-    }
-
-    function playlistIdFromLocation() {
-      const path = state.S?.Platform?.History?.location?.pathname || location.pathname || '';
-      const match = path.match(/\/playlist\/([A-Za-z0-9]+)/);
-      return match ? match[1] : null;
-    }
-
-    function nativeSearchCandidates() {
-      const page = findPlaylistPage();
-      if (!page) return [];
-      return [...page.querySelectorAll('input')].filter((input) => {
-        const hint = `${input.getAttribute('placeholder') || ''} ${input.getAttribute('aria-label') || ''}`.toLocaleLowerCase();
-        return input.getAttribute('role') === 'searchbox' || hint.includes('playlist') || input.classList.contains('x-filterBox-filterInput');
-      });
-    }
-
-    function restoreNativeTracklist() {
-      if (!state.hiddenTracklist) return;
-      state.hiddenTracklist.style.display = state.hiddenTracklistDisplay;
-      state.hiddenTracklist = null;
-      state.hiddenTracklistDisplay = '';
-    }
-
-    function hideNativeTracklist() {
-      const tracklist = findTracklistContainer();
-      if (!tracklist) return;
-      if (state.hiddenTracklist && state.hiddenTracklist !== tracklist) restoreNativeTracklist();
-      if (state.hiddenTracklist === tracklist) {
-        if (tracklist.style.display !== 'none') tracklist.style.display = 'none';
-        return;
-      }
-      state.hiddenTracklist = tracklist;
-      state.hiddenTracklistDisplay = tracklist.style.display || '';
-      tracklist.style.display = 'none';
-    }
-
-    function setNativeSmartState(active) {
-      state.nativeSearchInput?.classList.toggle('smart-search-native-active', active);
-    }
-    return { findPlaylistPage, findTracklistContainer, playlistIdFromLocation, nativeSearchCandidates, restoreNativeTracklist, hideNativeTracklist, setNativeSmartState };
-  })();
-
-  // src/spotify/react-internals.js
-  const __mod9 = (() => {
-    function reactFiberFor(element) {
-      if (!element) return null;
-      for (const key of Object.getOwnPropertyNames(element)) {
-        if (!key.startsWith('__reactFiber$') && !key.startsWith('__reactInternalInstance$')) continue;
-        try { return element[key] ?? null; } catch { return null; }
-      }
-      return null;
-    }
-
-    function fiberChainFromFiber(start, maxDepth = 48) {
-      const result = [];
-      let fiber = start;
-      const seen = new Set();
-      while (fiber && result.length < maxDepth && !seen.has(fiber)) {
-        seen.add(fiber);
-        result.push(fiber);
-        fiber = fiber.return;
-      }
-      return result;
-    }
-
-    function fiberChainFrom(element, maxDepth = 48) {
-      return fiberChainFromFiber(reactFiberFor(element), maxDepth);
-    }
-
-    function propsForFiber(fiber) {
-      return fiber?.memoizedProps && typeof fiber.memoizedProps === 'object'
-        ? fiber.memoizedProps
-        : fiber?.pendingProps && typeof fiber.pendingProps === 'object'
-          ? fiber.pendingProps
-          : null;
-    }
-    return { reactFiberFor, fiberChainFromFiber, fiberChainFrom, propsForFiber };
-  })();
-
   // src/diagnostics.js
-  const __mod10 = (() => {
+  const __mod7 = (() => {
     const { VERSION } = __mod2;
     const { state } = __mod0;
     const { loadConfig } = __mod4;
     const { detectCapabilities } = __mod6;
     const { safeErrorMessage } = __mod1;
+
     const log = [];
     const MAX_LOG = 30;
 
@@ -663,11 +554,14 @@
         filteredTracks: state.filtered.length,
         queryActive: Boolean(state.query),
         queryErrors: [...state.queryErrors],
-        nativeAdapterMode: state.nativeAdapterMode,
-        nativeAdapterError: state.nativeAdapterError,
-        nativeAdapterResultCount: state.nativeAdapterResultCount,
+        resultView: state.query ? 'smart-search-owned' : 'spotify-native',
         playbackMethod: session?.method ?? null,
+        playbackStartMethod: session?.lastStartMethod ?? null,
         playbackActive: Boolean(session?.active),
+        playbackIndex: session?.currentIndex ?? null,
+        playbackSequenceLength: session?.sequence?.length ?? 0,
+        playbackShuffle: session?.shuffle ?? null,
+        spotifySort: state.sortState,
         cacheEntries: state.cache.size,
         config: loadConfig(),
         capabilities: detectCapabilities(),
@@ -687,793 +581,80 @@
       }
       return false;
     }
-    return { copyDiagnostics, recordDiagnostic, diagnosticsSnapshot, diagnosticsText };
+    return { recordDiagnostic, diagnosticsSnapshot, diagnosticsText, copyDiagnostics };
   })();
+  // src/events.js
+  const __mod8 = (() => {
+    const listeners = new Map();
 
-  // src/spotify/mutation-watcher.js
-  const __mod11 = (() => {
-    const { MUTATION_DEBOUNCE_MS, MUTATION_REFRESH_COOLDOWN_MS, RESULTS_HOST_ID } = __mod2;
-    const { state } = __mod0;
-    const { loadConfig } = __mod4;
-    const { emit } = __mod7;
-    const { findPlaylistPage, findTracklistContainer } = __mod8;
-    const { recordDiagnostic } = __mod10;
-    let observer = null;
-    let root = null;
-    let debounceTimer = null;
-    let lastRefreshAt = 0;
-    let suspendedUntil = 0;
-
-    function suspendMutationWatcher(ms = 300) {
-      suspendedUntil = Math.max(suspendedUntil, Date.now() + ms);
+    function on(event, handler) {
+      if (!listeners.has(event)) listeners.set(event, new Set());
+      listeners.get(event).add(handler);
+      return () => listeners.get(event)?.delete(handler);
     }
 
-    function isOwnMutation(mutation) {
-      const target = mutation.target?.nodeType === Node.ELEMENT_NODE ? mutation.target : mutation.target?.parentElement;
-      return Boolean(target?.closest?.(`#${RESULTS_HOST_ID}`));
-    }
-
-    function scheduleCandidateRefresh() {
-      if (!loadConfig().livePlaylistRefresh || Date.now() < suspendedUntil) return;
-      if (debounceTimer !== null) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        debounceTimer = null;
-        const now = Date.now();
-        if (now - lastRefreshAt < MUTATION_REFRESH_COOLDOWN_MS) return;
-        lastRefreshAt = now;
-        recordDiagnostic('playlist-mutation-candidate', 'DOM change detected');
-        emit('playlist-mutation-candidate', { reason: 'dom-mutation' });
-      }, MUTATION_DEBOUNCE_MS);
-    }
-
-    function maintainMutationWatcher() {
-      if (!loadConfig().livePlaylistRefresh || !state.playlistId) {
-        stopMutationWatcher();
-        return;
+    function emit(event, payload) {
+      for (const handler of listeners.get(event) ?? []) {
+        try { handler(payload); } catch (error) { console.warn('[Smart Search] event handler failed', event, error); }
       }
-      const nextRoot = findTracklistContainer() ?? findPlaylistPage();
-      if (!nextRoot) return;
-      if (observer && root === nextRoot) return;
-      stopMutationWatcher();
-      root = nextRoot;
-      observer = new MutationObserver((mutations) => {
-        if (Date.now() < suspendedUntil) return;
-        if (mutations.every(isOwnMutation)) return;
-        // Child-list changes catch playlist row replacement after add/remove operations.
-        // The refresh is debounced + fingerprinted by playlist-source, so harmless React
-        // remounts do not alter state even if they trigger this fallback observer.
-        if (mutations.some((mutation) => mutation.type === 'childList' && (mutation.addedNodes.length || mutation.removedNodes.length))) {
-          scheduleCandidateRefresh();
-        }
-      });
-      observer.observe(root, { childList: true, subtree: true });
     }
-
-    function stopMutationWatcher() {
-      try { observer?.disconnect(); } catch {}
-      observer = null;
-      root = null;
-      if (debounceTimer !== null) clearTimeout(debounceTimer);
-      debounceTimer = null;
-    }
-    return { suspendMutationWatcher, maintainMutationWatcher, stopMutationWatcher };
+    return { on, emit };
   })();
-
-  // src/spotify/native-list-adapter.js
-  const __mod12 = (() => {
-    const { state } = __mod0;
-    const { loadConfig } = __mod4;
-    const { emit } = __mod7;
-    const { consoleWarn, sleep } = __mod1;
-    const { findPlaylistPage, findTracklistContainer, restoreNativeTracklist, setNativeSmartState } = __mod8;
-    const { reactFiberFor, fiberChainFrom, fiberChainFromFiber, propsForFiber } = __mod9;
-    const { suspendMutationWatcher } = __mod11;
-    const { recordDiagnostic } = __mod10;
-    let nativePatch = null;
-    let attachGeneration = 0;
-    let lastKnownTarget = null;
-    let structuralScanAt = 0;
-    let nativeFilterSuppressed = false;
-    let headerCountElement = null;
-    let headerCountOriginalText = '';
-    let nativeListObserver = null;
-    let nativeListObserverRoot = null;
-    let nativeListObserverPlaylistId = null;
-    let nativeListMaintenanceQueued = false;
-    let sortBridgeInstalled = false;
-    let sortRefreshTimer = null;
-
-    function primitiveSortKey(value) {
-      if (value == null) return '';
-      if (typeof value === 'string' || typeof value === 'number') return String(value);
-      if (typeof value === 'symbol') return value.description || String(value);
-      if (typeof value === 'object') {
-        for (const key of ['id', 'key', 'name', 'type', 'columnType', 'value']) {
-          try {
-            const nested = value[key];
-            if (nested != null && nested !== value) {
-              const result = primitiveSortKey(nested);
-              if (result) return result;
-            }
-          } catch {}
-        }
-      }
-      try { return String(value); } catch { return ''; }
-    }
-
-    function nativeTargetScore(fiber) {
-      const props = propsForFiber(fiber);
-      const cache = props?.itemsCache;
-      if (!cache || typeof cache !== 'object') return -1;
-      if (typeof cache.getItem !== 'function' && typeof cache.getItems !== 'function') return -1;
-      let score = 20;
-      if (typeof cache.getItem === 'function') score += 3;
-      if (typeof cache.getItems === 'function') score += 4;
-      if (typeof cache.invalidateCache === 'function') score += 1;
-      if (props.sortState && typeof props.sortState === 'object') score += 6;
-      if (typeof props.onSort === 'function') score += 4;
-      if (typeof props.resolveItem === 'function') score += 3;
-      if (typeof props.renderRow === 'function' || typeof props.renderRows === 'function') score += 2;
-      if (typeof props.nrTracks === 'number') score += 2;
-      if (typeof props.rowCount === 'number') score += 1;
-      if (props.canFetchAllTracks === true) score += 1;
-      return score;
-    }
-
-    function sortStateForFiber(fiber) {
-      for (const item of fiberChainFromFiber(fiber, 18)) {
-        const sort = propsForFiber(item)?.sortState;
-        if (sort && typeof sort === 'object') return sort;
-      }
-      return null;
-    }
-
-    function sortSignatureFromState(sortState) {
-      if (!sortState || typeof sortState !== 'object') return '';
-      const column = primitiveSortKey(sortState.column ?? sortState.field ?? sortState.key ?? '');
-      const order = primitiveSortKey(sortState.order ?? sortState.direction ?? '');
-      return `${column}|${order}`;
-    }
-
-    function targetFromFiber(fiber) {
-      const score = nativeTargetScore(fiber);
-      if (score < 0) return null;
-      const props = propsForFiber(fiber);
-      const cache = props?.itemsCache;
-      const sortState = sortStateForFiber(fiber);
-      return {
-        cache,
-        fiber,
-        chain: fiberChainFromFiber(fiber),
-        sortState,
-        sortSignature: sortSignatureFromState(sortState),
-        score,
-      };
-    }
-
-    function isTargetUsable(target) {
-      return Boolean(target?.cache && typeof target.cache === 'object'
-        && (typeof target.cache.getItem === 'function' || typeof target.cache.getItems === 'function'));
-    }
-
-    function nativeAnchorElements() {
-      const page = findPlaylistPage();
-      if (!page) return [];
-      const result = [];
-      const add = (element) => { if (element && !result.includes(element)) result.push(element); };
-      add(findTracklistContainer());
-      add(state.nativeSearchInput);
-      add(page);
-      for (const element of [...page.querySelectorAll('.main-trackList-trackListRow,[role="row"],[role="columnheader"],[aria-sort],button[role="combobox"],.x-filterBox-filterInput')].slice(0, 18)) add(element);
-      return result;
-    }
-
-    function bestTargetFromAncestorChains() {
-      let best = null;
-      for (const element of nativeAnchorElements()) {
-        for (const fiber of fiberChainFrom(element, 56)) {
-          const target = targetFromFiber(fiber);
-          if (target && (!best || target.score > best.score)) best = target;
-        }
-      }
-      return best;
-    }
-
-    function bestTargetFromFiberNeighborhood() {
-      const starts = nativeAnchorElements().map(reactFiberFor).filter(Boolean);
-      if (!starts.length) return null;
-      const queue = [...starts];
-      const seen = new Set();
-      let best = null;
-      while (queue.length && seen.size < 9000) {
-        const fiber = queue.shift();
-        if (!fiber || seen.has(fiber)) continue;
-        seen.add(fiber);
-        const target = targetFromFiber(fiber);
-        if (target && (!best || target.score > best.score)) {
-          best = target;
-          if (best.score >= 38) break;
-        }
-        for (const next of [fiber.return, fiber.child, fiber.sibling, fiber.alternate]) {
-          if (next && !seen.has(next)) queue.push(next);
-        }
-      }
-      return best;
-    }
-
-    function discoverNativeTarget(forceStructuralScan = false) {
-      if (!loadConfig().preferNativeRows) return null;
-      if (nativePatch?.active && nativePatch.cache) {
-        const current = targetFromFiber(nativePatch.targetFiber);
-        if (current && current.cache === nativePatch.cache) return current;
-      }
-      if (isTargetUsable(lastKnownTarget)) {
-        const refreshed = targetFromFiber(lastKnownTarget.fiber);
-        if (refreshed && refreshed.cache === lastKnownTarget.cache) {
-          lastKnownTarget = refreshed;
-          return refreshed;
-        }
-      }
-      const ancestor = bestTargetFromAncestorChains();
-      if (ancestor) {
-        lastKnownTarget = ancestor;
-        return ancestor;
-      }
-      const now = Date.now();
-      if (!forceStructuralScan && now - structuralScanAt < 120) return null;
-      structuralScanAt = now;
-      const structural = bestTargetFromFiberNeighborhood();
-      if (structural) lastKnownTarget = structural;
-      return structural;
-    }
-
-    function primeNativeListTarget() {
-      if (state.playlistId && loadConfig().preferNativeRows) discoverNativeTarget(false);
-    }
-
-    function compareText(a, b) {
-      return a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true });
-    }
-
-    function sortDirection(sortState) {
-      const raw = sortState?.order ?? sortState?.direction;
-      if (typeof raw === 'number') {
-        if (raw === 2 || raw < 0) return -1;
-        if (raw === 1 || raw > 0) return 1;
-        return 0;
-      }
-      const text = primitiveSortKey(raw).toLowerCase();
-      if (/desc|reverse|down/.test(text)) return -1;
-      if (/asc|forward|up/.test(text)) return 1;
-      return 0;
-    }
-
-    function sortColumn(sortState) {
-      return primitiveSortKey(sortState?.column ?? sortState?.field ?? sortState?.key).toLowerCase();
-    }
-
-    function sortedTracksForNative(target) {
-      const base = [...state.filtered];
-      const column = sortColumn(target.sortState);
-      const direction = sortDirection(target.sortState);
-      if (!direction || !column) return base;
-      let selector = null;
-      if (/album/.test(column)) selector = (track) => track.albumNorm;
-      else if (/date|added|recent/.test(column)) selector = (track) => Date.parse(track.addedAt || '') || 0;
-      else if (/duration|time|length/.test(column)) selector = (track) => track.duration;
-      else if (/artist/.test(column)) selector = (track) => track.artistNorm[0] || '';
-      else if (/title|name|track/.test(column)) selector = (track) => track.titleNorm;
-      else if (/custom|order|index|position/.test(column)) selector = (track) => track.playlistIndex;
-      if (!selector) return base;
-      return base.map((track, index) => ({ track, index, value: selector(track) }))
-        .sort((a, b) => {
-          const cmp = typeof a.value === 'number' && typeof b.value === 'number'
-            ? a.value - b.value
-            : compareText(String(a.value), String(b.value));
-          return cmp ? cmp * direction : a.index - b.index;
-        })
-        .map((entry) => entry.track);
-    }
-
-    function replaceFirstArray(value, replacement, total) {
-      if (Array.isArray(value)) return replacement;
-      if (!value || typeof value !== 'object') return value;
-      for (const key of ['items', 'tracks', 'rows', 'entries', 'values']) {
-        if (!Array.isArray(value[key])) continue;
-        const clone = { ...value, [key]: replacement };
-        for (const totalKey of ['total', 'totalCount', 'count', 'length']) {
-          if (typeof clone[totalKey] === 'number') clone[totalKey] = total;
-        }
-        return clone;
-      }
-      return value;
-    }
-
-    function numericRange(args, fallbackCount) {
-      const nums = args.filter((value) => Number.isInteger(value) && value >= 0).map(Number);
-      const start = nums[0] ?? 0;
-      let count = nums[1] ?? fallbackCount;
-      if (nums.length >= 2 && start > 0 && nums[1] > start && nums[1] - start <= 500) count = nums[1] - start;
-      if (!Number.isFinite(count) || count <= 0) count = fallbackCount;
-      return { start, count: Math.min(Math.max(1, count), 1000) };
-    }
-
-    function forceTracklistUpdate(chain) {
-      for (const fiber of chain) {
-        const stateNode = fiber?.stateNode;
-        if (stateNode && typeof stateNode.forceUpdate === 'function') {
-          try { stateNode.forceUpdate(); return; } catch {}
-        }
-        let hook = fiber?.memoizedState;
-        let guard = 0;
-        while (hook && guard++ < 28) {
-          if (typeof hook.memoizedState === 'number' && typeof hook.queue?.dispatch === 'function') {
-            try { hook.queue.dispatch((value) => Number(value || 0) + 1); return; } catch {}
-          }
-          hook = hook.next;
-        }
-      }
-      try { findTracklistContainer()?.dispatchEvent(new Event('scroll', { bubbles: true })); } catch {}
-    }
-
-    function mutateFiberCounts(chain, patch) {
-      const count = patch.orderedRawItems.length;
-      for (const fiber of chain) {
-        for (const key of ['memoizedProps', 'pendingProps']) {
-          const props = fiber?.[key];
-          if (!props || typeof props !== 'object') continue;
-          try {
-            if ('nrTracks' in props) props.nrTracks = count;
-            if ('rowCount' in props && typeof props.rowCount === 'number') props.rowCount = count;
-            if ('itemsCache' in props && props.itemsCache !== patch.cache && nativeTargetScore(fiber) >= 0) props.itemsCache = patch.cache;
-            if ('getItems' in props && typeof patch.cache.getItems === 'function') props.getItems = patch.cache.getItems;
-          } catch {}
-        }
-      }
-    }
-
-    function patchNativeCache(patch, chain) {
-      suspendMutationWatcher(350);
-      const cache = patch.cache;
-      if (patch.originalGetItem) {
-        try {
-          const wrapped = function smartSearchGetItem(index, ...rest) {
-            if (!patch.active) return patch.originalGetItem.call(cache, index, ...rest);
-            const value = patch.orderedRawItems[Number(index) || 0];
-            return patch.originalGetItemWasPromise ? Promise.resolve(value) : value;
-          };
-          patch.wrappedGetItem = wrapped;
-          cache.getItem = wrapped;
-        } catch {}
-      }
-      if (patch.originalGetItems) {
-        try {
-          const wrapped = function smartSearchGetItems(...args) {
-            const originalResult = patch.originalGetItems.apply(cache, args);
-            if (!patch.active) return originalResult;
-            const adapt = (result) => {
-              let fallbackCount = 50;
-              if (Array.isArray(result)) fallbackCount = Math.max(1, result.length || 50);
-              else if (Array.isArray(result?.items)) fallbackCount = Math.max(1, result.items.length || 50);
-              else if (Array.isArray(result?.tracks)) fallbackCount = Math.max(1, result.tracks.length || 50);
-              const { start, count } = numericRange(args, fallbackCount);
-              const replacement = patch.orderedRawItems.slice(start, start + count);
-              const adapted = replaceFirstArray(result, replacement, patch.orderedRawItems.length);
-              return adapted === result && !Array.isArray(result) ? replacement : adapted;
-            };
-            return originalResult && typeof originalResult.then === 'function'
-              ? Promise.resolve(originalResult).then(adapt)
-              : adapt(originalResult);
-          };
-          patch.wrappedGetItems = wrapped;
-          cache.getItems = wrapped;
-        } catch {}
-      }
-      try {
-        const descriptor = Object.getOwnPropertyDescriptor(cache, 'nrValidItems');
-        if (!descriptor || descriptor.configurable !== false) {
-          Object.defineProperty(cache, 'nrValidItems', {
-            configurable: true,
-            enumerable: descriptor?.enumerable ?? true,
-            get: () => patch.active ? patch.orderedRawItems.length : patch.originalNrValue,
-            set: (value) => { patch.originalNrValue = value; },
-          });
-        } else if (descriptor.writable) cache.nrValidItems = patch.orderedRawItems.length;
-      } catch {
-        try { cache.nrValidItems = patch.orderedRawItems.length; } catch {}
-      }
-      mutateFiberCounts(chain, patch);
-      forceTracklistUpdate(chain);
-    }
-
-    function restoreFiberCounts(chain, patch) {
-      const fullCount = Number(patch.originalNrValue) || state.tracks.length;
-      for (const fiber of chain ?? []) {
-        for (const key of ['memoizedProps', 'pendingProps']) {
-          const props = fiber?.[key];
-          if (!props || typeof props !== 'object') continue;
-          try {
-            if ('nrTracks' in props) props.nrTracks = fullCount;
-            if ('rowCount' in props && typeof props.rowCount === 'number') props.rowCount = fullCount;
-            if ('getItems' in props && patch.originalGetItems) props.getItems = patch.originalGetItems;
-          } catch {}
-        }
-      }
-    }
-
-    function restoreNativePatch(forceUpdate = true) {
-      const patch = nativePatch;
-      nativePatch = null;
-      if (!patch) return;
-      patch.active = false;
-      suspendMutationWatcher(350);
-      try { if (patch.originalGetItem) patch.cache.getItem = patch.originalGetItem; } catch {}
-      try { if (patch.originalGetItems) patch.cache.getItems = patch.originalGetItems; } catch {}
-      try {
-        if (patch.originalNrDescriptor) Object.defineProperty(patch.cache, 'nrValidItems', patch.originalNrDescriptor);
-        else patch.cache.nrValidItems = patch.originalNrValue;
-      } catch {}
-      restoreFiberCounts(patch.targetChain, patch);
-      if (forceUpdate) forceTracklistUpdate(patch.targetChain ?? []);
-    }
-
-    function orderedRawItemsForTarget(target) {
-      const tracks = sortedTracksForNative(target);
-      const raw = [];
-      const accepted = [];
-      for (const track of tracks) {
-        if (!track.rawItem) continue;
-        raw.push(track.rawItem);
-        accepted.push(track);
-      }
-      return { raw, tracks: accepted };
-    }
-
-    function nativePatchNeedsRepair(patch) {
-      if (!patch.active) return false;
-      if (patch.originalGetItem && patch.wrappedGetItem && patch.cache.getItem !== patch.wrappedGetItem) return true;
-      if (patch.originalGetItems && patch.wrappedGetItems && patch.cache.getItems !== patch.wrappedGetItems) return true;
-      return false;
-    }
-
-    function refreshActivePatchForTarget(target) {
-      const patch = nativePatch;
-      if (!patch || patch.cache !== target.cache) return;
-      const ordered = orderedRawItemsForTarget(target);
-      patch.orderedRawItems = ordered.raw;
-      patch.orderedTracks = ordered.tracks;
-      patch.sortSignature = target.sortSignature;
-      patch.targetFiber = target.fiber;
-      patch.targetChain = target.chain;
-      patch.active = true;
-      state.filtered = ordered.tracks;
-      state.nativeAdapterResultCount = ordered.raw.length;
-      patchNativeCache(patch, target.chain);
-      updateHeaderResultCount();
-      emit('render');
-    }
-
-    function disconnectNativeListObserver() {
-      try { nativeListObserver?.disconnect(); } catch {}
-      nativeListObserver = null;
-      nativeListObserverRoot = null;
-      nativeListObserverPlaylistId = null;
-      nativeListMaintenanceQueued = false;
-    }
-
-    function ensureNativeListObserver() {
-      if (!state.query || state.nativeAdapterMode === 'idle') {
-        disconnectNativeListObserver();
-        return;
-      }
-      const playlistId = state.playlistId;
-      const root = findPlaylistPage();
-      if (!playlistId || !root) return;
-      if (nativeListObserver && nativeListObserverRoot === root && nativeListObserverPlaylistId === playlistId) return;
-      disconnectNativeListObserver();
-      nativeListObserverRoot = root;
-      nativeListObserverPlaylistId = playlistId;
-      nativeListObserver = new MutationObserver(() => {
-        if (nativeListMaintenanceQueued || !nativeAdapterIsActive()) return;
-        nativeListMaintenanceQueued = true;
-        queueMicrotask(() => {
-          nativeListMaintenanceQueued = false;
-          if (!nativeAdapterIsActive() || state.playlistId !== nativeListObserverPlaylistId) return;
-          maintainNativeSmartMode();
-        });
-      });
-      nativeListObserver.observe(root, { childList: true, subtree: true });
-    }
-
-    async function attachNativeAdapter(query, generation = attachGeneration) {
-      if (!loadConfig().preferNativeRows) {
-        state.nativeAdapterMode = 'fallback';
-        state.nativeAdapterError = 'Native rows disabled in settings';
-        emit('render');
-        return false;
-      }
-      state.nativeAdapterMode = 'attaching';
-      state.nativeAdapterError = null;
-      const deadline = Date.now() + 160;
-      let lastReason = 'native list model not found';
-      while (Date.now() < deadline) {
-        if (generation !== attachGeneration || state.query !== query) return false;
-        const target = discoverNativeTarget(true);
-        if (!target) {
-          lastReason = 'native list model not found from current Spotify React tree';
-          await sleep(8);
-          continue;
-        }
-        try {
-          if (nativePatch?.cache !== target.cache) restoreNativePatch(false);
-          const ordered = orderedRawItemsForTarget(target);
-          if (!ordered.raw.length && state.filtered.length) throw new Error('native list raw playlist items are unavailable');
-          const cache = target.cache;
-          const patch = nativePatch ?? {
-            cache,
-            originalGetItem: typeof cache.getItem === 'function' ? cache.getItem : null,
-            originalGetItems: typeof cache.getItems === 'function' ? cache.getItems : null,
-            originalNrDescriptor: Object.getOwnPropertyDescriptor(cache, 'nrValidItems'),
-            originalNrValue: cache.nrValidItems,
-            originalGetItemWasPromise: null,
-            wrappedGetItem: null,
-            wrappedGetItems: null,
-            orderedRawItems: [],
-            orderedTracks: [],
-            query,
-            sortSignature: target.sortSignature,
-            targetFiber: target.fiber,
-            targetChain: target.chain,
-            active: true,
-          };
-          if (patch.originalGetItemWasPromise === null && patch.originalGetItem) {
-            try {
-              const sample = patch.originalGetItem.call(cache, 0);
-              patch.originalGetItemWasPromise = Boolean(sample && typeof sample.then === 'function');
-            } catch { patch.originalGetItemWasPromise = false; }
-          }
-          nativePatch = patch;
-          Object.assign(patch, {
-            orderedRawItems: ordered.raw,
-            orderedTracks: ordered.tracks,
-            query,
-            sortSignature: target.sortSignature,
-            targetFiber: target.fiber,
-            targetChain: target.chain,
-            active: true,
-          });
-          state.filtered = ordered.tracks;
-          patchNativeCache(patch, target.chain);
-          state.nativeAdapterMode = 'native';
-          state.nativeAdapterResultCount = patch.orderedRawItems.length;
-          state.nativeAdapterError = null;
-          setNativeSmartState(true);
-          restoreNativeTracklist();
-          updateHeaderResultCount();
-          ensureNativeListObserver();
-          recordDiagnostic('native-adapter', `attached; ${patch.orderedRawItems.length} results`);
-          emit('render');
-          return true;
-        } catch (error) {
-          lastReason = error?.message || String(error);
-          restoreNativePatch(false);
-          await sleep(8);
-        }
-      }
-      state.nativeAdapterMode = 'fallback';
-      state.nativeAdapterResultCount = state.filtered.length;
-      state.nativeAdapterError = lastReason;
-      recordDiagnostic('native-adapter-fallback', lastReason);
-      consoleWarn('Spotify native playlist list adapter was unavailable; using compatibility view.', lastReason);
-      emit('render');
-      return false;
-    }
-
-    function beginNativeSmartMode(query) {
-      const generation = ++attachGeneration;
-      state.nativeAdapterMode = 'attaching';
-      state.nativeAdapterResultCount = state.filtered.length;
-      queueMicrotask(() => {
-        if (generation !== attachGeneration || state.query !== query) return;
-        void attachNativeAdapter(query, generation);
-      });
-    }
-
-    function endNativeSmartMode() {
-      attachGeneration += 1;
-      disconnectNativeListObserver();
-      restoreNativePatch(true);
-      releaseSpotifyNativeFilterSuppression();
-      restoreHeaderResultCount();
-      state.nativeAdapterMode = 'idle';
-      state.nativeAdapterError = null;
-      state.nativeAdapterResultCount = 0;
-      restoreNativeTracklist();
-      setNativeSmartState(false);
-      emit('render');
-    }
-
-    function nativeAdapterIsActive() {
-      return state.nativeAdapterMode === 'native' && Boolean(nativePatch?.active);
-    }
-
-    function nativeAdapterStatusText() {
-      if (state.nativeAdapterMode === 'native') return `Native Spotify list · ${state.nativeAdapterResultCount} results`;
-      if (state.nativeAdapterMode === 'attaching') return 'Connecting to Spotify playlist list…';
-      if (state.nativeAdapterMode === 'fallback') return `Compatibility result view${state.nativeAdapterError ? ` · ${state.nativeAdapterError}` : ''}`;
-      return 'Idle';
-    }
-
-    function maintainNativeSmartMode() {
-      if (!state.query) {
-        if (state.nativeAdapterMode !== 'idle') endNativeSmartMode();
-        primeNativeListTarget();
-        return;
-      }
-      if (!loadConfig().preferNativeRows) {
-        if (state.nativeAdapterMode === 'native' || state.nativeAdapterMode === 'attaching') endNativeSmartMode();
-        state.nativeAdapterMode = 'fallback';
-        return;
-      }
-      ensureNativeListObserver();
-      if (state.nativeAdapterMode === 'native' && nativePatch) {
-        const target = discoverNativeTarget(false);
-        if (!target) return;
-        if (target.cache !== nativePatch.cache) {
-          lastKnownTarget = target;
-          beginNativeSmartMode(state.query);
-          return;
-        }
-        if (target.sortSignature !== nativePatch.sortSignature) {
-          lastKnownTarget = target;
-          refreshActivePatchForTarget(target);
-          return;
-        }
-        if (nativePatchNeedsRepair(nativePatch)) {
-          nativePatch.targetChain = target.chain;
-          patchNativeCache(nativePatch, target.chain);
-          updateHeaderResultCount();
-          return;
-        }
-        nativePatch.targetChain = target.chain;
-        mutateFiberCounts(target.chain, nativePatch);
-        updateHeaderResultCount();
-      }
-    }
-
-    function ownText(element) {
-      return Array.from(element.childNodes)
-        .filter((node) => node.nodeType === Node.TEXT_NODE)
-        .map((node) => node.textContent || '')
-        .join('').trim();
-    }
-
-    function findPlaylistSongCountElement() {
-      const page = findPlaylistPage();
-      const tracklist = findTracklistContainer();
-      if (!page) return null;
-      const trackTop = tracklist?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY;
-      let best = null;
-      let bestScore = -1;
-      for (const element of [...page.querySelectorAll('span,div,p')]) {
-        const text = ownText(element);
-        if (!text || text.length > 120 || !/\b\d[\d,.\s]*\s+(songs?|tracks?)\b/i.test(text)) continue;
-        const rect = element.getBoundingClientRect();
-        if (rect.top > trackTop) continue;
-        let score = 10;
-        if (/saves?|followers?/i.test(text)) score += 3;
-        if (/min|hr|sec/i.test(text)) score += 2;
-        if (element.children.length === 0) score += 1;
-        if (score > bestScore) { best = element; bestScore = score; }
-      }
-      return best;
-    }
-
-    function updateHeaderResultCount() {
-      if (state.nativeAdapterMode !== 'native') return;
-      const count = state.nativeAdapterResultCount || state.filtered.length;
-      const element = headerCountElement && document.contains(headerCountElement) ? headerCountElement : findPlaylistSongCountElement();
-      if (!element) return;
-      if (element !== headerCountElement) {
-        headerCountElement = element;
-        headerCountOriginalText = ownText(element) || element.textContent || '';
-      }
-      const current = ownText(element) || element.textContent || '';
-      const source = headerCountOriginalText || current;
-      const next = source.replace(/\b\d[\d,.\s]*(?=\s+(?:songs?|tracks?)\b)/i, String(count));
-      if (next && element.textContent !== next) element.textContent = next;
-    }
-
-    function restoreHeaderResultCount() {
-      if (headerCountElement && document.contains(headerCountElement) && headerCountOriginalText) {
-        try { headerCountElement.textContent = headerCountOriginalText; } catch {}
-      }
-      headerCountElement = null;
-      headerCountOriginalText = '';
-    }
-
-    function searchControllerFor(input) {
-      if (!input) return null;
-      for (const fiber of fiberChainFrom(input, 32)) {
-        const props = propsForFiber(fiber);
-        if (!props || (typeof props.onFilter !== 'function' && typeof props.onClear !== 'function')) continue;
-        let hook = fiber.memoizedState;
-        let textHook = null;
-        let guard = 0;
-        while (hook && guard++ < 24) {
-          if (typeof hook.memoizedState === 'string' && typeof hook.queue?.dispatch === 'function') {
-            textHook = hook;
-            break;
-          }
-          hook = hook.next;
-        }
-        return { props, textHook };
-      }
-      return null;
-    }
-
-    function suppressSpotifyNativeFilter(input, value) {
-      const controller = searchControllerFor(input);
-      if (!nativeFilterSuppressed) {
-        nativeFilterSuppressed = true;
-        try { controller?.props?.onClear?.(); } catch (error) { consoleWarn('Could not clear Spotify native playlist filter.', error); }
-      }
-      queueMicrotask(() => {
-        try { controller?.textHook?.queue?.dispatch?.(value); } catch (error) { consoleWarn('Could not synchronize Spotify search text state.', error); }
-      });
-    }
-
-    function releaseSpotifyNativeFilterSuppression() {
-      nativeFilterSuppressed = false;
-    }
-
-
-    function installNativeAdapterBridges() {
-      if (sortBridgeInstalled) return;
-      sortBridgeInstalled = true;
-      document.addEventListener('click', (event) => {
-        if (!nativeAdapterIsActive() || !state.query) return;
-        const target = event.target;
-        const control = target?.closest?.('[role="columnheader"], [aria-sort], button[role="combobox"]');
-        if (!control || !findPlaylistPage()?.contains(control)) return;
-        if (sortRefreshTimer !== null) clearTimeout(sortRefreshTimer);
-        sortRefreshTimer = setTimeout(() => {
-          sortRefreshTimer = null;
-          const latest = discoverNativeTarget(true);
-          if (latest) lastKnownTarget = latest;
-          maintainNativeSmartMode();
-        }, 0);
-      }, true);
-    }
-    return { attachNativeAdapter, discoverNativeTarget, primeNativeListTarget, beginNativeSmartMode, endNativeSmartMode, nativeAdapterIsActive, nativeAdapterStatusText, maintainNativeSmartMode, updateHeaderResultCount, suppressSpotifyNativeFilter, releaseSpotifyNativeFilterSuppression, installNativeAdapterBridges };
-  })();
-
   // src/release-notes.js
-  const __mod13 = (() => {
-    const { PROJECT_URL, RELEASE_SEEN_KEY, RELEASE_NOTES_REVISION, VERSION } = __mod2;
+  const __mod9 = (() => {
+    const { BUG_REPORT_URL, CHANGELOG_URL, FEATURE_REQUEST_URL, RELEASE_SEEN_KEY, RELEASE_NOTES_REVISION, VERSION } = __mod2;
     const { state } = __mod0;
+
+    const displayVersion = VERSION;
+    let activeOverlay = null;
+    let activeResizeHandler = null;
+    let activeViewportHandler = null;
+    let activeKeyHandler = null;
+
     const RELEASE_NOTES = {
       version: VERSION,
       revision: RELEASE_NOTES_REVISION,
-      title: 'Smart Search 1.1.0',
-      notes: [
-        'Rebuilt the extension from the original 1.0 single-file codebase into maintainable modules, while still shipping one bundled extension file.',
-        'Reworked advanced search into a compact syntax: ; for OR, & for AND, - to exclude, @ for exact artists, compact year comparisons/ranges, and escaping for reserved symbols.',
-        'Removed the old artist:, title:, track:, album: prefixes and quote-based syntax.',
-        'Added clearer malformed-query messages instead of silently returning no results.',
-        'Added automated parser and matcher tests plus an in-app parser self-check.',
-        'Added a searchable settings tutorial that documents the syntax actually supported by this release.',
-        'Added diagnostics for Spotify/Spicetify capabilities, raw diagnostics, clipboard copy, and manual playlist refresh.',
-        'Improved feature detection and fallback handling for PlaylistAPI, GraphQL, Spotify native rows, and private playback/queue APIs.',
-        'Added live playlist-change detection with cache invalidation and automatic refresh after tracks are added or removed.',
-        'Added on-demand release-year metadata lookup so year filters work even when PlaylistAPI does not include release dates.',
-        'Added first-install/update release notes and a Release notes button in Settings.',
-        'Cleaned up settings text and controls while keeping normal Spotify playlist search untouched until advanced syntax is used.',
+      title: `Smart Search ${displayVersion}`,
+      sections: [
+        {
+          label: 'New',
+          icon: '✦',
+          tone: 'new',
+          items: [
+            'Compact advanced syntax with AND, OR, exclusions, exact artists, year filters, and escaping.',
+            'Inline syntax help and artist suggestions under the playlist search box.',
+            'Diagnostics, automated checks, and version-aware release notes in Settings.',
+          ],
+        },
+        {
+          label: 'Improved',
+          icon: '↗',
+          tone: 'improved',
+          items: [
+            'Advanced searches now use a stable Smart Search-owned result view instead of patching Spotify’s private playlist UI.',
+            'Filtered playback follows the visible sort order, mirrors Spotify Shuffle, and preserves songs you manually add to the queue.',
+            'Playlist refresh, release-year lookup, and Spotify API compatibility are more resilient.',
+          ],
+        },
+        {
+          label: 'Fixed',
+          icon: '✓',
+          tone: 'fixed',
+          items: [
+            'Malformed searches now explain what is wrong instead of looking like empty results.',
+            'Removed native-list flicker and rerender conflicts during advanced searches.',
+            'Fixed selected-song playback, queue ordering, result Play controls, syntax-help lifecycle, and several refresh/UI edge cases.',
+          ],
+        },
       ],
     };
 
     function releaseToken() {
       return `${VERSION}:${RELEASE_NOTES_REVISION}`;
+    }
+
+    function hasSeenCurrentRelease() {
+      return readSeenRelease() === releaseToken();
     }
 
     function readSeenRelease() {
@@ -1491,79 +672,233 @@
       try { globalThis.localStorage?.setItem?.(RELEASE_SEEN_KEY, value); } catch {}
     }
 
+    function makeExternalButton(label, url, iconText) {
+      const link = document.createElement('a');
+      link.className = 'ss1-release-link';
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      const icon = document.createElement('span');
+      icon.className = 'ss1-release-link-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = iconText;
+      const text = document.createElement('span');
+      text.textContent = label;
+      link.append(icon, text);
+      return link;
+    }
+
+    function cleanupReleaseOverlay() {
+      if (activeResizeHandler) {
+        try { window.removeEventListener('resize', activeResizeHandler); } catch {}
+        activeResizeHandler = null;
+      }
+      if (activeViewportHandler && window.visualViewport) {
+        try { window.visualViewport.removeEventListener('resize', activeViewportHandler); } catch {}
+        activeViewportHandler = null;
+      }
+      if (activeKeyHandler) {
+        try { document.removeEventListener('keydown', activeKeyHandler, true); } catch {}
+        activeKeyHandler = null;
+      }
+    }
+
+    function closeReleaseNotes() {
+      cleanupReleaseOverlay();
+      try { activeOverlay?.remove?.(); } catch {}
+      activeOverlay = null;
+    }
+
     function buildReleaseNotesContent() {
       const content = document.createElement('div');
       content.className = 'ss1-release-notes';
 
-      const header = document.createElement('div');
-      header.className = 'ss1-release-header';
-      const intro = document.createElement('div');
-      intro.className = 'ss1-release-kicker';
-      intro.textContent = "What's new on this version";
-      const subtitle = document.createElement('div');
-      subtitle.className = 'ss1-release-subtitle';
-      subtitle.textContent = 'Changes since Smart Search 1.0';
-      header.append(intro, subtitle);
+      const hero = document.createElement('div');
+      hero.className = 'ss1-release-hero';
+      const appIcon = document.createElement('div');
+      appIcon.className = 'ss1-release-app-icon';
+      appIcon.setAttribute('aria-hidden', 'true');
+      appIcon.textContent = 'S';
+      const copy = document.createElement('div');
+      copy.className = 'ss1-release-hero-copy';
+      const label = document.createElement('div');
+      label.className = 'ss1-release-overline';
+      label.textContent = 'SMART SEARCH UPDATE';
+      const heading = document.createElement('div');
+      heading.className = 'ss1-release-heading';
+      heading.textContent = `What's new in ${displayVersion}`;
+      const sub = document.createElement('div');
+      sub.className = 'ss1-release-subtitle';
+      sub.textContent = 'Highlights since Smart Search 1.0. Full release notes are on GitHub.';
+      const chip = document.createElement('span');
+      chip.className = 'ss1-release-version-chip';
+      chip.textContent = `Version ${displayVersion}`;
+      copy.append(label, heading, sub, chip);
+      hero.append(appIcon, copy);
 
-      const list = document.createElement('ul');
-      list.className = 'ss1-release-list';
-      for (const note of RELEASE_NOTES.notes) {
-        const item = document.createElement('li');
-        item.textContent = note;
-        list.appendChild(item);
+      const sections = document.createElement('div');
+      sections.className = 'ss1-release-sections';
+      for (const section of RELEASE_NOTES.sections) {
+        const card = document.createElement('section');
+        card.className = `ss1-release-section ss1-release-section-${section.tone}`;
+        const sectionHeader = document.createElement('div');
+        sectionHeader.className = 'ss1-release-section-header';
+        const sectionIcon = document.createElement('span');
+        sectionIcon.className = 'ss1-release-section-icon';
+        sectionIcon.setAttribute('aria-hidden', 'true');
+        sectionIcon.textContent = section.icon;
+        const sectionTitle = document.createElement('strong');
+        sectionTitle.textContent = section.label;
+        sectionHeader.append(sectionIcon, sectionTitle);
+        const list = document.createElement('ul');
+        list.className = 'ss1-release-section-list';
+        for (const item of section.items) {
+          const li = document.createElement('li');
+          li.textContent = item;
+          list.appendChild(li);
+        }
+        card.append(sectionHeader, list);
+        sections.appendChild(card);
       }
 
-      const actions = document.createElement('div');
-      actions.className = 'ss1-release-actions';
+      const footer = document.createElement('div');
+      footer.className = 'ss1-release-footer';
+      const links = document.createElement('div');
+      links.className = 'ss1-release-links';
+      links.append(
+        makeExternalButton('Full changelog', CHANGELOG_URL, '↗'),
+        makeExternalButton('Report bug', BUG_REPORT_URL, '!'),
+        makeExternalButton('Request feature', FEATURE_REQUEST_URL, '+'),
+      );
 
-      const github = document.createElement('a');
-      github.className = 'ss1-button';
-      github.href = PROJECT_URL;
-      github.target = '_blank';
-      github.rel = 'noopener noreferrer';
-      github.textContent = 'View on GitHub';
+      const done = document.createElement('button');
+      done.className = 'ss1-release-done';
+      done.type = 'button';
+      done.textContent = 'Done';
+      done.addEventListener('click', closeReleaseNotes);
 
-      const close = document.createElement('button');
-      close.className = 'ss1-button primary';
-      close.type = 'button';
-      close.textContent = 'Got it';
-      close.addEventListener('click', () => state.S?.PopupModal?.hide?.());
-
-      actions.append(github, close);
-      content.append(header, list, actions);
+      footer.append(links, done);
+      content.append(hero, sections, footer);
       return content;
     }
 
-    function showReleaseNotes({ markSeen = false } = {}) {
-      if (typeof state.S?.PopupModal?.display !== 'function') return false;
-      state.S.PopupModal.display({
-        title: RELEASE_NOTES.title,
-        content: buildReleaseNotesContent(),
-        isLarge: false,
+    function responsiveDialogWidth(viewportWidth, viewportHeight) {
+      const horizontalGutter = viewportWidth < 700 ? 24 : viewportWidth < 1200 ? 48 : 72;
+      const availableWidth = Math.max(300, viewportWidth - horizontalGutter);
+      const aspect = viewportWidth / Math.max(1, viewportHeight);
+      let preferredWidth;
+      if (viewportWidth < 1200) {
+        // Compact / portrait-ish Spotify windows, e.g. half of a vertical monitor.
+        preferredWidth = viewportWidth * 0.54;
+      } else if (aspect >= 2.15) {
+        // Ultrawide: grow strongly with width, but stay proportional to height.
+        preferredWidth = Math.min(viewportWidth * 0.55, viewportHeight * 1.55);
+      } else {
+        preferredWidth = Math.min(viewportWidth * 0.68, viewportHeight * 1.45);
+      }
+      const minimumWidth = viewportWidth < 700 ? availableWidth : viewportWidth < 1200 ? 520 : 680;
+      return Math.min(1800, availableWidth, Math.max(minimumWidth, preferredWidth));
+    }
+
+    function mountReleaseNotes(content) {
+      if (!document.body) return false;
+      closeReleaseNotes();
+
+      const overlay = document.createElement('div');
+      overlay.className = 'ss1-release-overlay';
+      overlay.setAttribute('data-smart-search-release', displayVersion);
+
+      const dialog = document.createElement('section');
+      dialog.className = 'ss1-release-dialog';
+      dialog.setAttribute('role', 'dialog');
+      dialog.setAttribute('aria-modal', 'true');
+      dialog.setAttribute('aria-label', `What's new in Smart Search ${displayVersion}`);
+
+      const topbar = document.createElement('div');
+      topbar.className = 'ss1-release-topbar';
+      const topTitle = document.createElement('strong');
+      topTitle.textContent = `Smart Search ${displayVersion}`;
+      const close = document.createElement('button');
+      close.className = 'ss1-release-close';
+      close.type = 'button';
+      close.setAttribute('aria-label', 'Close release notes');
+      close.textContent = '×';
+      close.addEventListener('click', closeReleaseNotes);
+      topbar.append(topTitle, close);
+
+      dialog.append(topbar, content);
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+      activeOverlay = overlay;
+
+      const applyResponsiveSize = () => {
+        if (!overlay.isConnected) return;
+        const viewportWidth = Math.max(
+          320,
+          window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 1280,
+        );
+        const viewportHeight = Math.max(
+          320,
+          window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 720,
+        );
+        const width = responsiveDialogWidth(viewportWidth, viewportHeight);
+        const verticalGutter = viewportHeight < 700 ? 24 : 48;
+        const maxHeight = Math.max(300, viewportHeight - verticalGutter);
+        dialog.style.setProperty('--ss1-release-dialog-width', `${Math.round(width)}px`);
+        dialog.style.setProperty('--ss1-release-dialog-max-height', `${Math.round(maxHeight)}px`);
+        overlay.style.setProperty('--ss1-release-overlay-pad', `${Math.max(12, Math.round(verticalGutter / 2))}px`);
+      };
+
+      activeResizeHandler = () => requestAnimationFrame(applyResponsiveSize);
+      window.addEventListener('resize', activeResizeHandler, { passive: true });
+      if (window.visualViewport) {
+        activeViewportHandler = () => requestAnimationFrame(applyResponsiveSize);
+        window.visualViewport.addEventListener('resize', activeViewportHandler, { passive: true });
+      }
+      activeKeyHandler = (event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          closeReleaseNotes();
+        }
+      };
+      document.addEventListener('keydown', activeKeyHandler, true);
+      overlay.addEventListener('click', (event) => {
+        if (event.target === overlay) closeReleaseNotes();
       });
+
+      applyResponsiveSize();
+      requestAnimationFrame(() => close.focus());
+      return true;
+    }
+
+    function showReleaseNotes({ markSeen = false } = {}) {
+      const content = buildReleaseNotesContent();
+      const mounted = mountReleaseNotes(content);
+      if (!mounted) return false;
       if (markSeen) writeSeenRelease(releaseToken());
       return true;
     }
 
-    function maybeShowReleaseNotes() {
-      if (readSeenRelease() === releaseToken()) return false;
-      return showReleaseNotes({ markSeen: true });
+    async function maybeShowReleaseNotes() {
+      if (hasSeenCurrentRelease()) return false;
+      const shown = showReleaseNotes({ markSeen: true });
+      return shown;
     }
-    return { showReleaseNotes, maybeShowReleaseNotes, RELEASE_NOTES };
+    return { RELEASE_NOTES, hasSeenCurrentRelease, closeReleaseNotes, showReleaseNotes, maybeShowReleaseNotes };
   })();
-
   // src/ui/settings.js
-  const __mod14 = (() => {
+  const __mod10 = (() => {
     const { BUG_REPORT_URL, FEATURE_REQUEST_URL, PROJECT_URL, VERSION } = __mod2;
     const { state } = __mod0;
     const { loadConfig, updateConfig } = __mod4;
     const { SYNTAX_REFERENCE, parseQuery } = __mod5;
     const { capabilityRows } = __mod6;
-    const { nativeAdapterStatusText } = __mod12;
-    const { copyDiagnostics, diagnosticsText } = __mod10;
-    const { emit, on } = __mod7;
-    const { showReleaseNotes } = __mod13;
+    const { copyDiagnostics, diagnosticsText } = __mod7;
+    const { emit, on } = __mod8;
+    const { showReleaseNotes } = __mod9;
     const { consoleWarn } = __mod1;
+
     let settingsMenuItem = null;
 
     function createSettingsToggle(parent, title, description, key) {
@@ -1658,10 +993,6 @@
 
     function buildDiagnosticsPanel() {
       const { details, body } = createCollapsiblePanel('Diagnostics');
-      const adapter = document.createElement('div');
-      adapter.className = 'ss1-muted';
-      adapter.textContent = `Adapter: ${nativeAdapterStatusText()}`;
-
       const grid = document.createElement('div');
       grid.className = 'ss1-diag-grid';
       const renderRows = () => {
@@ -1699,7 +1030,6 @@
         setFeedback(feedback, 'Refreshing diagnostics…');
         await new Promise((resolve) => setTimeout(resolve, 80));
         renderRows();
-        adapter.textContent = `Adapter: ${nativeAdapterStatusText()}`;
         if (!pre.hidden) pre.textContent = diagnosticsText();
         setBusy(refresh, false, 'Refreshing…', 'Refresh diagnostics');
         setFeedback(feedback, 'Diagnostics refreshed.', 'ok');
@@ -1783,7 +1113,7 @@
       });
 
       actions.append(refresh, copy, show, forceRefresh, self);
-      body.append(adapter, grid, actions, feedback, pre);
+      body.append(grid, actions, feedback, pre);
       return details;
     }
 
@@ -1811,7 +1141,10 @@
       notes.className = 'ss1-button';
       notes.type = 'button';
       notes.textContent = 'Release notes';
-      notes.addEventListener('click', () => showReleaseNotes({ markSeen: false }));
+      notes.addEventListener('click', () => {
+        try { state.S?.PopupModal?.hide?.(); } catch {}
+        setTimeout(() => showReleaseNotes({ markSeen: false }), 120);
+      });
       actions.appendChild(notes);
       box.append(title, desc, actions);
       return box;
@@ -1821,10 +1154,9 @@
       const content = document.createElement('div');
       content.className = 'ss1-settings';
       createSettingsToggle(content, 'Enabled', 'Use Smart Search on playlist pages.', 'enabled');
-      createSettingsToggle(content, 'Prefer Spotify native rows', 'Use Spotify’s playlist rows when the current client supports them.', 'preferNativeRows');
       createSettingsToggle(content, 'Live playlist refresh', 'Update Smart Search after tracks are added or removed.', 'livePlaylistRefresh');
-      createSettingsToggle(content, 'Collapse compatibility results by default', 'Keep the fallback result list compact.', 'resultsCollapsed');
-      createSettingsToggle(content, 'Show syntax help', 'Show a short search reminder under compatibility results.', 'showSyntaxHelp');
+      createSettingsToggle(content, 'Collapse results by default', 'Keep Smart Search results compact until you expand them.', 'resultsCollapsed');
+      createSettingsToggle(content, 'Show syntax help', 'Show contextual syntax tips and artist suggestions below the playlist search box. Validation errors are always shown.', 'showSyntaxHelp');
       content.append(buildSyntaxPanel(), buildDiagnosticsPanel(), buildSupportPanel());
       const version = document.createElement('div');
       version.className = 'ss1-version';
@@ -1869,32 +1201,106 @@
     }
     return { showSettings, registerSettingsMenu, registerSettingsMenuDeferred };
   })();
-
-  // src/spotify/playback.js
-  const __mod15 = (() => {
-    const { PLAYBACK_BUFFER_TARGET, PLAYBACK_BUFFER_LOW_WATER, PLAYBACK_REFILL_CHUNK } = __mod2;
+  // src/ui/dom.js
+  const __mod11 = (() => {
     const { state } = __mod0;
-    const { detectCapabilities } = __mod6;
-    const { findPlaylistPage, findTracklistContainer } = __mod8;
-    const { nativeAdapterIsActive } = __mod12;
-    const { consoleError, consoleWarn } = __mod1;
-    const { emit } = __mod7;
-    const { recordDiagnostic } = __mod10;
-    function fisherYates(input) {
-      const result = [...input];
-      for (let index = result.length - 1; index > 0; index -= 1) {
-        const random = Math.floor(Math.random() * (index + 1));
-        [result[index], result[random]] = [result[random], result[index]];
-      }
-      return result;
+
+    function findPlaylistPage() {
+      return document.querySelector('[data-testid="playlist-page"]') || document.querySelector('main');
     }
 
-    function makeNativeQueueItem(track) {
+    function findTracklistContainer() {
+      const page = findPlaylistPage();
+      if (!page) return null;
+      return page.querySelector('[data-testid="playlist-tracklist"]')
+        || page.querySelector('.main-trackList-trackList')
+        || page.querySelector('[role="grid"]');
+    }
+
+    function playlistIdFromLocation() {
+      const path = state.S?.Platform?.History?.location?.pathname || location.pathname || '';
+      const match = path.match(/\/playlist\/([A-Za-z0-9]+)/);
+      return match ? match[1] : null;
+    }
+
+    function nativeSearchCandidates() {
+      const page = findPlaylistPage();
+      if (!page) return [];
+      return [...page.querySelectorAll('input')].filter((input) => {
+        const hint = `${input.getAttribute('placeholder') || ''} ${input.getAttribute('aria-label') || ''}`.toLocaleLowerCase();
+        return input.getAttribute('role') === 'searchbox' || hint.includes('playlist') || input.classList.contains('x-filterBox-filterInput');
+      });
+    }
+
+    function restoreNativeTracklist() {
+      if (state.hiddenTracklist) {
+        try { state.hiddenTracklist.style.display = state.hiddenTracklistDisplay; } catch {}
+      }
+      state.hiddenTracklist = null;
+      state.hiddenTracklistDisplay = '';
+    }
+
+    function hideNativeTracklist() {
+      const tracklist = findTracklistContainer();
+      if (!tracklist) return;
+      if (state.hiddenTracklist && state.hiddenTracklist !== tracklist) restoreNativeTracklist();
+      if (state.hiddenTracklist !== tracklist) {
+        state.hiddenTracklist = tracklist;
+        state.hiddenTracklistDisplay = tracklist.style.display || '';
+      }
+      // CSS also hides every future Spotify remount while advanced mode is active;
+      // this inline fallback covers clients where the page class lands one frame later.
+      if (tracklist.style.display !== 'none') tracklist.style.display = 'none';
+    }
+
+    function setAdvancedViewState(active) {
+      state.nativeSearchInput?.classList.toggle('smart-search-native-active', active);
+      const page = findPlaylistPage();
+      page?.classList.toggle('smart-search-advanced-view', active);
+      if (!active) restoreNativeTracklist();
+    }
+
+    // Kept as a compatibility alias for older internal imports.
+    const setNativeSmartState = setAdvancedViewState;
+    return { findPlaylistPage, findTracklistContainer, playlistIdFromLocation, nativeSearchCandidates, restoreNativeTracklist, hideNativeTracklist, setAdvancedViewState, setNativeSmartState };
+  })();
+  // src/spotify/queue-model.js
+  const __mod12 = (() => {
+    function queueItemUri(item) {
+      if (!item || typeof item !== 'object') return null;
+      if (typeof item.uri === 'string' && item.uri.startsWith('spotify:track:')) return item.uri;
+      if (typeof item.contextTrack?.uri === 'string' && item.contextTrack.uri.startsWith('spotify:track:')) return item.contextTrack.uri;
+      return null;
+    }
+
+    function queueItemUid(item) {
+      if (!item || typeof item !== 'object') return '';
+      return String(item.uid ?? item.contextTrack?.uid ?? '');
+    }
+
+    function queueItemMetadata(item) {
+      return item?.contextTrack?.metadata ?? item?.metadata ?? {};
+    }
+
+    function isExplicitQueueItem(item) {
+      if (!item || typeof item !== 'object') return false;
+      if (item.provider === 'queue') return true;
+      const marker = queueItemMetadata(item)?.is_queued;
+      return marker === true || marker === 'true';
+    }
+
+    function makeQueueItem(track, queued = false) {
+      const uri = typeof track === 'string' ? track : track?.uri;
+      const uid = typeof track === 'string' ? '' : String(track?.uid ?? '');
       return {
-        contextTrack: { uri: track.uri, uid: '', metadata: { is_queued: 'false' } },
+        contextTrack: {
+          uri,
+          uid,
+          metadata: { is_queued: queued ? 'true' : 'false' },
+        },
         removed: [],
         blocked: [],
-        provider: 'context',
+        provider: queued ? 'queue' : 'context',
       };
     }
 
@@ -1907,72 +1313,296 @@
       };
     }
 
-    function queueUpcomingCount() {
-      const queueState = state.S?.Platform?.PlayerAPI?._queue?._queueState;
-      const counts = [
-        Array.isArray(queueState?.nextUp) ? queueState.nextUp.length : null,
-        Array.isArray(queueState?.queued) ? queueState.queued.length : null,
-      ].filter((value) => Number.isFinite(value));
-      return counts.length ? counts.reduce((sum, value) => sum + value, 0) : null;
+    function pushUniqueTrack(target, seen, item) {
+      const uri = queueItemUri(item);
+      if (!uri) return;
+      const uid = queueItemUid(item);
+      const key = `${uri}|${uid}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      target.push({ uri, uid });
     }
 
-    function buildNativeQueuePayload(sequence, queueCore) {
+    function manualQueueTracks(queueState, queueCore = null) {
+      const tracks = [];
+      const seen = new Set();
+
+      // Lowest-level queue entries expose an explicit provider / is_queued marker.
+      // Prefer these because queueState.queued can contain transitional entries while
+      // Spotify is switching contexts.
+      const lowLevel = Array.isArray(queueCore?.nextTracks) ? queueCore.nextTracks : [];
+      for (const item of lowLevel) {
+        if (isExplicitQueueItem(item)) pushUniqueTrack(tracks, seen, item);
+      }
+
+      const queued = Array.isArray(queueState?.queued) ? queueState.queued : [];
+      const hasClassification = queued.some((item) => item?.provider != null || queueItemMetadata(item)?.is_queued != null);
+      for (const item of queued) {
+        // Modern clients classify explicit queue items. Older clients expose only the
+        // `queued` bucket, where membership itself is the manual-queue signal.
+        if (hasClassification && !isExplicitQueueItem(item)) continue;
+        pushUniqueTrack(tracks, seen, item);
+      }
+      return tracks;
+    }
+
+    function buildNativeQueuePayload({
+      queueCore,
+      leadTrack = null,
+      manualTracks = [],
+      contextTracks = [],
+    } = {}) {
+      const nextTracks = [];
+      if (leadTrack?.uri) nextTracks.push(makeQueueItem(leadTrack, false));
+      for (const track of manualTracks) {
+        if (track?.uri) nextTracks.push(makeQueueItem(track, true));
+      }
+      for (const track of contextTracks) {
+        if (track?.uri) nextTracks.push(makeQueueItem(track, false));
+      }
+      nextTracks.push(makeDelimiterQueueItem());
       return {
-        nextTracks: [...sequence.map(makeNativeQueueItem), makeDelimiterQueueItem()],
+        nextTracks,
         prevTracks: Array.isArray(queueCore?.prevTracks) ? queueCore.prevTracks : [],
         queueRevision: queueCore?.queueRevision,
       };
     }
 
-    async function syncSpotifyPlaybackContext(contextUri) {
-      if (!contextUri || typeof state.S?.Platform?.PlayerAPI?.updateContext !== 'function') return;
-      try {
-        const playerState = state.S.Platform.PlayerAPI.getState?.();
-        const sessionId = playerState?.sessionId;
-        if (!sessionId) return;
-        await state.S.Platform.PlayerAPI.updateContext(sessionId, { uri: contextUri, url: `context://${contextUri}` });
-      } catch (error) {
-        consoleWarn('Could not synchronize the Spotify playback context.', error);
+    function fisherYates(input, random = Math.random) {
+      const result = [...input];
+      for (let index = result.length - 1; index > 0; index -= 1) {
+        const swap = Math.floor(random() * (index + 1));
+        [result[index], result[swap]] = [result[swap], result[index]];
       }
+      return result;
     }
 
-    async function playWithNativeSetQueue(sequence, shuffle, smartShuffle = false) {
-      const controller = state.S?.Platform?.PlayerAPI?._queue;
+    function playbackPlan(tracks, startIndex = 0, shuffle = false, random = Math.random) {
+      const source = [...(tracks ?? [])];
+      if (!source.length) return { cycle: [], startIndex: 0, selected: null };
+      const safeIndex = Math.max(0, Math.min(Number(startIndex) || 0, source.length - 1));
+      const selected = source[safeIndex];
+      if (!shuffle) return { cycle: source, startIndex: safeIndex, selected };
+      const remaining = source.filter((_, index) => index !== safeIndex);
+      const cycle = [selected, ...fisherYates(remaining, random)];
+      return { cycle, startIndex: 0, selected };
+    }
+
+    function randomStartIndex(length, random = Math.random) {
+      const safeLength = Math.max(0, Number(length) || 0);
+      if (!safeLength) return 0;
+      return Math.min(safeLength - 1, Math.floor(random() * safeLength));
+    }
+
+    function contextTailForSession(session, repeatMode = 0, _minimum = 0) {
+      const cycle = Array.isArray(session?.sequence) ? session.sequence : [];
+      if (!cycle.length) return [];
+      const index = Math.max(-1, Math.min(Number(session?.currentIndex ?? -1), cycle.length - 1));
+      const tail = cycle.slice(index + 1);
+      if (repeatMode === 1) tail.push(...cycle);
+      return tail;
+    }
+    return { queueItemUri, isExplicitQueueItem, makeQueueItem, makeDelimiterQueueItem, manualQueueTracks, buildNativeQueuePayload, fisherYates, playbackPlan, randomStartIndex, contextTailForSession };
+  })();
+  // src/spotify/playback.js
+  const __mod13 = (() => {
+    const { PLAYBACK_BUFFER_TARGET, PLAYBACK_BUFFER_LOW_WATER, PLAYBACK_REFILL_CHUNK } = __mod2;
+    const { state } = __mod0;
+    const { detectCapabilities } = __mod6;
+    const { findPlaylistPage, findTracklistContainer } = __mod11;
+    const { consoleError, consoleWarn, sleep } = __mod1;
+    const { emit } = __mod8;
+    const { recordDiagnostic } = __mod7;
+    const { buildNativeQueuePayload, contextTailForSession, manualQueueTracks, playbackPlan, queueItemUri, randomStartIndex } = __mod12;
+
+    function playerQueueController() {
+      return state.S?.Platform?.PlayerAPI?._queue ?? null;
+    }
+
+    function currentManualQueueTracks() {
+      const controller = playerQueueController();
+      return manualQueueTracks(controller?._queueState, controller?._queue);
+    }
+
+    function rememberManualQueue(session, tracks = currentManualQueueTracks()) {
+      if (!session) return tracks;
+      if (!(session.manualQueueUris instanceof Set)) session.manualQueueUris = new Set();
+      for (const track of tracks) if (track?.uri) session.manualQueueUris.add(track.uri);
+      return tracks;
+    }
+
+    function spotifyRepeatMode() {
+      try {
+        if (typeof state.S?.Player?.getRepeat === 'function') return Number(state.S.Player.getRepeat()) || 0;
+      } catch {}
+      const fallback = state.S?.Player?.data?.repeat ?? state.S?.Platform?.PlayerAPI?._state?.repeat;
+      return Number(fallback) || 0;
+    }
+
+    function spotifyShuffleState() {
+      try {
+        if (typeof state.S?.Player?.getShuffle === 'function') return Boolean(state.S.Player.getShuffle());
+      } catch {}
+      return Boolean(state.S?.Player?.data?.shuffle);
+    }
+
+    function queueContextUpcomingCount() {
+      const nextUp = playerQueueController()?._queueState?.nextUp;
+      return Array.isArray(nextUp) ? nextUp.filter((item) => !item?.provider || item.provider === 'context').length : null;
+    }
+
+    function nativeContextUpcomingUris() {
+      const nextUp = playerQueueController()?._queueState?.nextUp;
+      if (!Array.isArray(nextUp)) return [];
+      const result = [];
+      for (const item of nextUp) {
+        if (item?.provider && item.provider !== 'context') continue;
+        const uri = queueItemUri(item);
+        if (uri) result.push(uri);
+      }
+      return result;
+    }
+
+    function waitForQueueUpdate(timeoutMs = 360) {
+      const playerApi = state.S?.Platform?.PlayerAPI;
+      let events = null;
+      try { events = playerApi?.getEvents?.() ?? playerApi?._events ?? null; } catch {}
+      if (!events?.addListener) return sleep(55);
+      return new Promise((resolve) => {
+        let settled = false;
+        let timer = null;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          if (timer !== null) clearTimeout(timer);
+          try { events.removeListener?.('queue_update', finish); } catch {}
+          resolve();
+        };
+        try { events.addListener('queue_update', finish, { once: true }); }
+        catch { resolve(); return; }
+        timer = setTimeout(finish, timeoutMs);
+      });
+    }
+
+    async function waitForCurrentUri(uri, timeoutMs = 700) {
+      const started = Date.now();
+      while (Date.now() - started < timeoutMs) {
+        if (state.S?.Player?.data?.item?.uri === uri) return true;
+        await sleep(20);
+      }
+      return state.S?.Player?.data?.item?.uri === uri;
+    }
+
+    function expectedContextTail(session) {
+      return contextTailForSession(session, spotifyRepeatMode());
+    }
+
+    function nativeQueueDiverged(session) {
+      if (session.method !== 'native-setQueue' || session.currentIndex < 0) return false;
+      const expected = expectedContextTail(session).slice(0, 8).map((track) => track.uri);
+      const actual = nativeContextUpcomingUris().slice(0, 8);
+      if (!expected.length) return actual.length > 0;
+      if (!actual.length) return true;
+      const comparable = Math.min(expected.length, actual.length);
+      for (let index = 0; index < comparable; index += 1) {
+        if (expected[index] !== actual[index]) return true;
+      }
+      if (spotifyRepeatMode() !== 1 && expected.length < 8 && actual.length > expected.length) return true;
+      return false;
+    }
+
+    async function setNativeUpcoming({ leadTrack = null, contextTracks = [], session = null, manualTracks = null } = {}) {
+      const controller = playerQueueController();
       const queueCore = controller?._queue;
       const client = controller?._client;
       if (!client?.setQueue || !queueCore) throw new Error('Native Spotify queue API is unavailable');
-      await client.setQueue(buildNativeQueuePayload(sequence, queueCore));
-      const contextUri = state.playlistId ? `spotify:playlist:${state.playlistId}` : null;
-      await syncSpotifyPlaybackContext(contextUri);
-      state.playbackSession = {
-        active: true,
-        method: 'native-setQueue',
-        sequence,
-        currentIndex: -1,
-        nextEnqueueIndex: sequence.length,
-        startedAt: Date.now(),
-        shuffle,
-        smartShuffle,
-        contextUri,
-        query: state.query,
-        lastCurrentUri: null,
-        refillCount: 0,
-      };
-      const nextResult = state.S?.Player?.next?.();
-      if (nextResult && typeof nextResult.then === 'function') await nextResult;
+      const preservedManual = manualTracks === null ? rememberManualQueue(session) : rememberManualQueue(session, manualTracks);
+      const queueUpdate = waitForQueueUpdate();
+      await client.setQueue(buildNativeQueuePayload({
+        queueCore,
+        leadTrack,
+        manualTracks: preservedManual,
+        contextTracks,
+      }));
+      await queueUpdate;
+      return preservedManual;
     }
 
-    async function reseedNativeQueueTail(session) {
-      const controller = state.S?.Platform?.PlayerAPI?._queue;
-      const queueCore = controller?._queue;
-      const client = controller?._client;
-      if (!client?.setQueue || !queueCore) return;
-      const remaining = session.sequence.slice(Math.max(0, session.currentIndex + 1));
-      if (!remaining.length) return;
-      await client.setQueue(buildNativeQueuePayload(remaining, queueCore));
-      await syncSpotifyPlaybackContext(session.contextUri ?? null);
+    async function reseedNativeQueueTail(session, { allowEmpty = false } = {}) {
+      if (!session?.active) return;
+      const remaining = expectedContextTail(session);
+      if (!remaining.length && spotifyRepeatMode() !== 1 && !allowEmpty) return;
+      await setNativeUpcoming({ contextTracks: remaining, session });
       session.refillCount += 1;
       session.lastNativeReseedAt = Date.now();
+      recordDiagnostic('queue-reseed', `context=${remaining.length}; manual=${currentManualQueueTracks().length}; repeat=${spotifyRepeatMode()}; shuffle=${session.shuffle}`);
+    }
+
+    async function advancePlayerToLead(selected) {
+      // Prefer the lower-level PlayerAPI transition. In current Spotify builds the
+      // public Player.next() path can briefly surface the generic “can't play this
+      // right now” toast even though the queued track starts successfully.
+      const skip = state.S?.Platform?.PlayerAPI?.skipToNext;
+      if (typeof skip === 'function') {
+        await skip.call(state.S.Platform.PlayerAPI);
+        await waitForCurrentUri(selected.uri);
+        return 'setQueue-skipToNext';
+      }
+      const next = state.S?.Player?.next;
+      if (typeof next === 'function') {
+        const result = next.call(state.S.Player);
+        if (result && typeof result.then === 'function') await result;
+        await waitForCurrentUri(selected.uri);
+        return 'setQueue-next';
+      }
+      throw new Error('Spotify next-track API is unavailable');
+    }
+
+    async function playWithNativeSetQueue(plan, shuffle) {
+      const { cycle, startIndex, selected } = plan;
+      if (!selected) return;
+
+      const preservedManual = currentManualQueueTracks();
+      const session = {
+        active: true,
+        method: 'native-setQueue',
+        sequence: cycle,
+        currentIndex: startIndex,
+        nextEnqueueIndex: cycle.length,
+        startedAt: Date.now(),
+        shuffle,
+        query: state.query,
+        lastCurrentUri: selected.uri,
+        lastContextUri: selected.uri,
+        refillCount: 0,
+        manualQueueUris: new Set(preservedManual.map((track) => track.uri)),
+      };
+      state.playbackSession = session;
+
+      // Do not use Player.playUri here. On some Spotify builds it starts the track
+      // correctly but still emits the misleading “Spotify can't play this right now”
+      // toast. Seed the selected result as the next context track and advance instead.
+      await setNativeUpcoming({
+        leadTrack: selected,
+        contextTracks: expectedContextTail(session),
+        session,
+        manualTracks: [],
+      });
+      session.lastStartMethod = await advancePlayerToLead(selected);
+
+      // Restore explicit user queue entries after the selected result has started.
+      // They keep Spotify's normal priority ahead of the automatic Smart Search tail.
+      await setNativeUpcoming({
+        contextTracks: expectedContextTail(session),
+        session,
+        manualTracks: preservedManual,
+      });
+
+      for (const delay of [80, 260]) {
+        await sleep(delay);
+        if (!session.active) break;
+        if (nativeQueueDiverged(session)) await reseedNativeQueueTail(session, { allowEmpty: true });
+      }
     }
 
     async function enqueueTracks(tracks) {
@@ -1993,37 +1623,52 @@
     async function refillSlidingQueue(force = false) {
       const session = state.playbackSession;
       if (!session?.active || session.method !== 'sliding-addToQueue') return;
+      const repeatMode = spotifyRepeatMode();
       const remainingBuffered = Math.max(0, session.nextEnqueueIndex - session.currentIndex - 1);
       if (!force && remainingBuffered > PLAYBACK_BUFFER_LOW_WATER) return;
-      if (session.nextEnqueueIndex >= session.sequence.length) return;
-      const desiredEnd = Math.min(
-        session.sequence.length,
-        Math.max(session.nextEnqueueIndex + PLAYBACK_REFILL_CHUNK, session.currentIndex + 1 + PLAYBACK_BUFFER_TARGET),
-      );
-      const slice = session.sequence.slice(session.nextEnqueueIndex, desiredEnd);
+
+      let slice = [];
+      if (session.nextEnqueueIndex < session.sequence.length) {
+        const desiredEnd = Math.min(
+          session.sequence.length,
+          Math.max(session.nextEnqueueIndex + PLAYBACK_REFILL_CHUNK, session.currentIndex + 1 + PLAYBACK_BUFFER_TARGET),
+        );
+        slice = session.sequence.slice(session.nextEnqueueIndex, desiredEnd);
+        session.nextEnqueueIndex = desiredEnd;
+      } else if (repeatMode === 1 && session.sequence.length) {
+        slice = session.sequence.slice(0, Math.min(session.sequence.length, PLAYBACK_BUFFER_TARGET));
+        session.nextEnqueueIndex = slice.length;
+      }
+      if (!slice.length) return;
       await enqueueTracks(slice);
-      session.nextEnqueueIndex = desiredEnd;
       session.refillCount += 1;
     }
 
-    async function playWithSlidingQueue(sequence, shuffle) {
-      const first = sequence[0];
-      if (!first) return;
-      if (typeof state.S?.Platform?.PlayerAPI?.clearQueue === 'function') await state.S.Platform.PlayerAPI.clearQueue();
-      if (typeof state.S?.Player?.playUri !== 'function') throw new Error('Spicetify.Player.playUri is unavailable');
-      await state.S.Player.playUri(first.uri);
-      state.playbackSession = {
+    async function playWithSlidingQueue(plan, shuffle) {
+      const { cycle, startIndex, selected } = plan;
+      if (!selected) return;
+      const manualTracks = currentManualQueueTracks();
+      if (typeof state.S?.Player?.playUri !== 'function') throw new Error('No compatible playback API is available');
+      await state.S.Player.playUri(selected.uri);
+      if (typeof state.S?.Platform?.PlayerAPI?.clearQueue === 'function') {
+        try { await state.S.Platform.PlayerAPI.clearQueue(); } catch {}
+      }
+      const session = {
         active: true,
         method: 'sliding-addToQueue',
-        sequence,
-        currentIndex: 0,
-        nextEnqueueIndex: 1,
+        sequence: cycle,
+        currentIndex: startIndex,
+        nextEnqueueIndex: startIndex + 1,
         startedAt: Date.now(),
         shuffle,
         query: state.query,
-        lastCurrentUri: first.uri,
+        lastCurrentUri: selected.uri,
+        lastContextUri: selected.uri,
         refillCount: 0,
+        manualQueueUris: new Set(manualTracks.map((track) => track.uri)),
       };
+      state.playbackSession = session;
+      if (manualTracks.length) await enqueueTracks(manualTracks);
       await refillSlidingQueue(true);
     }
 
@@ -2035,34 +1680,35 @@
       return -1;
     }
 
-    function queueItemUri(item) {
-      if (!item || typeof item !== 'object') return null;
-      if (typeof item.uri === 'string' && item.uri.startsWith('spotify:track:')) return item.uri;
-      if (typeof item.contextTrack?.uri === 'string' && item.contextTrack.uri.startsWith('spotify:track:')) return item.contextTrack.uri;
-      return null;
+    function currentTrackMarkedQueued() {
+      const metadata = state.S?.Player?.data?.item?.metadata ?? state.S?.Player?.data?.contextTrack?.metadata;
+      return metadata?.is_queued === 'true' || metadata?.is_queued === true;
     }
 
-    function nativeContextUpcomingUris() {
-      const queueState = state.S?.Platform?.PlayerAPI?._queue?._queueState;
-      const nextUp = Array.isArray(queueState?.nextUp) ? queueState.nextUp : [];
-      const result = [];
-      for (const item of nextUp) {
-        if (item?.provider && item.provider !== 'context') continue;
-        const uri = queueItemUri(item);
-        if (uri) result.push(uri);
-      }
-      return result;
+    function currentTrackIsManualQueue(session, uri, resolvedIndex) {
+      if (currentTrackMarkedQueued()) return true;
+      return resolvedIndex < 0 && session?.manualQueueUris instanceof Set && session.manualQueueUris.has(uri);
     }
 
-    function nativeQueueDiverged(session) {
-      if (session.method !== 'native-setQueue' || session.currentIndex < 0) return false;
-      const expected = session.sequence.slice(session.currentIndex + 1, session.currentIndex + 9).map((track) => track.uri);
-      if (!expected.length) return false;
-      const actual = nativeContextUpcomingUris().slice(0, expected.length);
-      if (!actual.length) return false;
-      const comparable = Math.min(expected.length, actual.length);
-      for (let index = 0; index < comparable; index += 1) if (expected[index] !== actual[index]) return true;
-      return false;
+    function currentResultIndexInFiltered(uri) {
+      if (!uri) return -1;
+      return state.filtered.findIndex((track) => track.uri === uri);
+    }
+
+    function rebuildSessionForShuffle(session, shuffle, currentUri, currentIsManual) {
+      if (!state.filtered.length) return false;
+      const anchorUri = currentIsManual ? session.lastContextUri : currentUri;
+      const sourceIndex = currentResultIndexInFiltered(anchorUri);
+      if (sourceIndex < 0) return false;
+      const plan = playbackPlan(state.filtered, sourceIndex, shuffle);
+      session.sequence = plan.cycle;
+      session.currentIndex = plan.startIndex;
+      session.nextEnqueueIndex = plan.cycle.length;
+      session.shuffle = shuffle;
+      session.lastCurrentUri = currentUri;
+      session.lastContextUri = anchorUri;
+      recordDiagnostic('shuffle-sync', shuffle ? 'enabled; new randomized Smart Search order' : 'disabled; restored visible Smart Search order');
+      return true;
     }
 
     async function maintainPlaybackSession(reason = 'poll') {
@@ -2070,23 +1716,52 @@
       if (!session?.active || state.playbackMaintenanceInFlight) return;
       state.playbackMaintenanceInFlight = true;
       try {
+        rememberManualQueue(session);
         const currentUri = state.S?.Player?.data?.item?.uri || null;
         if (!currentUri) return;
-        const index = findSessionIndexForUri(session, currentUri, reason === 'songchange');
+        let index = findSessionIndexForUri(session, currentUri, reason === 'songchange');
+        const manualCurrent = currentTrackIsManualQueue(session, currentUri, index);
+
+        const shuffleNow = spotifyShuffleState();
+        if (shuffleNow !== Boolean(session.shuffle)) {
+          if (rebuildSessionForShuffle(session, shuffleNow, currentUri, manualCurrent)) {
+            index = findSessionIndexForUri(session, manualCurrent ? session.lastContextUri : currentUri, false);
+            if (session.method === 'native-setQueue') await reseedNativeQueueTail(session, { allowEmpty: true });
+            else if (session.method === 'sliding-addToQueue') {
+              session.nextEnqueueIndex = Math.max(0, session.currentIndex + 1);
+              await refillSlidingQueue(true);
+            }
+          }
+        }
+
+        if (manualCurrent) {
+          session.lastCurrentUri = currentUri;
+          emit('playback-update');
+          return;
+        }
+
         if (index < 0) {
           if (Date.now() - session.startedAt > 4000) session.active = false;
           return;
         }
         session.currentIndex = index;
         session.lastCurrentUri = currentUri;
+        session.lastContextUri = currentUri;
+
         if (session.method === 'sliding-addToQueue') await refillSlidingQueue(false);
         if (session.method === 'native-setQueue') {
-          const upcoming = queueUpcomingCount();
-          const remaining = Math.max(0, session.sequence.length - index - 1);
+          const repeatMode = spotifyRepeatMode();
+          const logicalRemaining = Math.max(0, session.sequence.length - index - 1);
+          const upcoming = queueContextUpcomingCount();
           const cooldownDone = !session.lastNativeReseedAt || Date.now() - session.lastNativeReseedAt > 500;
-          const needsRefill = upcoming !== null && remaining > PLAYBACK_BUFFER_LOW_WATER && upcoming <= PLAYBACK_BUFFER_LOW_WATER;
-          const contextWasRegenerated = reason === 'songchange' && nativeQueueDiverged(session);
-          if (cooldownDone && (needsRefill || contextWasRegenerated)) await reseedNativeQueueTail(session);
+          const repeatNeedsWrap = repeatMode === 1 && logicalRemaining <= PLAYBACK_BUFFER_LOW_WATER;
+          const needsRefill = upcoming !== null
+            && logicalRemaining > PLAYBACK_BUFFER_LOW_WATER
+            && upcoming <= PLAYBACK_BUFFER_LOW_WATER;
+          const contextWasRegenerated = nativeQueueDiverged(session);
+          if (cooldownDone && (repeatNeedsWrap || needsRefill || contextWasRegenerated)) {
+            await reseedNativeQueueTail(session, { allowEmpty: contextWasRegenerated });
+          }
         }
         emit('playback-update');
       } catch (error) {
@@ -2096,46 +1771,30 @@
       }
     }
 
-    function spotifyShuffleState() {
-      try {
-        if (typeof state.S?.Player?.getShuffle === 'function') return Boolean(state.S.Player.getShuffle());
-      } catch {}
-      return Boolean(state.S?.Player?.data?.shuffle);
+    async function startFilteredPlayback(startIndex, shuffle) {
+      const plan = playbackPlan(state.filtered, startIndex, shuffle);
+      if (!plan.selected) return;
+      if (detectCapabilities().nativeSetQueue) {
+        try {
+          await playWithNativeSetQueue(plan, shuffle);
+          return;
+        } catch (error) {
+          consoleWarn('Native Smart Search playback bridge failed; using compatibility queue.', error);
+        }
+      }
+      await playWithSlidingQueue(plan, shuffle);
     }
 
-    function spotifySmartShuffleState() {
-      return Boolean(state.S?.Player?.data?.smartShuffle ?? state.S?.Platform?.PlayerAPI?._state?.smartShuffle);
-    }
-
-    function sequenceFromSelected(startIndex, shuffle) {
-      const source = [...state.filtered];
-      if (!source.length) return [];
-      const index = Math.max(0, Math.min(startIndex, source.length - 1));
-      const selected = source[index];
-      if (!shuffle) return source.slice(index);
-      const remaining = source.filter((_, itemIndex) => itemIndex !== index);
-      return [selected, ...fisherYates(remaining)];
-    }
-
-    async function playFilteredRespectingSpotify(startIndex = 0) {
+    async function playFilteredRespectingSpotify(startIndex = null) {
       if (!state.filtered.length || state.playbackBusy) return;
       const shuffle = spotifyShuffleState();
-      const smartShuffle = spotifySmartShuffleState();
-      const sequence = sequenceFromSelected(startIndex, shuffle || smartShuffle);
-      if (!sequence.length) return;
+      const explicitIndex = Number.isInteger(startIndex);
+      const resolvedStart = explicitIndex ? startIndex : (shuffle ? randomStartIndex(state.filtered.length) : 0);
       state.playbackBusy = true;
       emit('playback-update');
       try {
-        if (detectCapabilities().nativeSetQueue) {
-          try { await playWithNativeSetQueue(sequence, shuffle || smartShuffle, smartShuffle); }
-          catch (error) {
-            consoleWarn('Native Smart Search playback bridge failed; using compatibility queue.', error);
-            await playWithSlidingQueue(sequence, shuffle || smartShuffle);
-          }
-        } else {
-          await playWithSlidingQueue(sequence, shuffle || smartShuffle);
-        }
-        recordDiagnostic('playback-start', state.playbackSession?.method ?? 'unknown');
+        await startFilteredPlayback(resolvedStart, shuffle);
+        recordDiagnostic('playback-start', `${state.playbackSession?.method ?? 'unknown'}; result=${resolvedStart + 1}; shuffle=${shuffle}; manual-preserved`);
       } catch (error) {
         state.playbackSession = null;
         consoleError('Could not start Smart Search playback.', error);
@@ -2146,24 +1805,13 @@
       }
     }
 
+    // Kept for internal/tests compatibility. Production UI follows Spotify's shuffle state.
     async function playFiltered(startIndex = 0, shuffle = false) {
       if (!state.filtered.length || state.playbackBusy) return;
       state.playbackBusy = true;
       emit('playback-update');
-      let sequence = [...state.filtered];
-      if (shuffle) sequence = fisherYates(sequence);
-      else {
-        const index = Math.max(0, Math.min(startIndex, sequence.length - 1));
-        sequence = [...sequence.slice(index), ...sequence.slice(0, index)];
-      }
       try {
-        if (detectCapabilities().nativeSetQueue) {
-          try { await playWithNativeSetQueue(sequence, shuffle); }
-          catch (error) {
-            consoleWarn('Native queue setup failed; using compatibility queue.', error);
-            await playWithSlidingQueue(sequence, shuffle);
-          }
-        } else await playWithSlidingQueue(sequence, shuffle);
+        await startFilteredPlayback(startIndex, shuffle);
       } catch (error) {
         state.playbackSession = null;
         consoleError('Could not start filtered playback.', error);
@@ -2174,31 +1822,16 @@
       }
     }
 
-    function smartResultIndexForRow(row) {
-      const rowIndex = Number(row.getAttribute('aria-rowindex'));
-      if (Number.isInteger(rowIndex)) {
-        const filteredIndex = rowIndex - 2;
-        if (filteredIndex >= 0 && filteredIndex < state.filtered.length) return filteredIndex;
-      }
-      const href = row.querySelector('a[href*="/track/"]')?.getAttribute('href') || '';
-      const match = href.match(/\/track\/([A-Za-z0-9]+)/);
-      if (match) {
-        const uri = `spotify:track:${match[1]}`;
-        const index = state.filtered.findIndex((track) => track.uri === uri);
-        if (index >= 0) return index;
-      }
-      return null;
-    }
-
-    function isRowPlayButton(target, row) {
-      const button = target.closest?.('button');
-      if (!button || !row.contains(button)) return false;
-      const label = `${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''}`.toLowerCase();
-      if (/play|pause/.test(label)) return true;
-      return Boolean(button.closest('.main-trackList-rowImagePlayButton,.main-trackList-rowPlayPauseButton'));
+    function isSmartSearchPlaybackControl(target) {
+      return Boolean(target?.closest?.('#smart-search-results-root'));
     }
 
     function isPlaylistMainPlayButton(target) {
+      // The document-level listener runs in capture phase, before result-row click
+      // handlers. Never treat Smart Search's own Play buttons as Spotify's main
+      // playlist Play button, otherwise a row click gets converted into “Play
+      // results” and loses the clicked index.
+      if (isSmartSearchPlaybackControl(target)) return false;
       const button = target.closest?.('button');
       if (!button || findTracklistContainer()?.contains(button)) return false;
       const page = findPlaylistPage();
@@ -2208,51 +1841,31 @@
       return /(^|\s)play(\s|$)|play playlist/.test(label) || /playbutton/.test(cls);
     }
 
-    function interceptNativePlayback(event) {
-      if (!nativeAdapterIsActive() || !state.query) return;
+    function interceptPlaylistPlay(event) {
+      if (!state.query || state.queryErrors.length) return;
       const target = event.target;
-      if (!target?.closest) return;
-      const row = target.closest('[role="row"],.main-trackList-trackListRow');
-      let shouldPlay = false;
-      let index = 0;
-      if (row) {
-        if (event.type === 'dblclick') shouldPlay = true;
-        else if (event.type === 'click' && isRowPlayButton(target, row)) shouldPlay = true;
-        else if (event.type === 'keydown' && event.key === 'Enter') shouldPlay = true;
-        if (shouldPlay) {
-          const resolved = smartResultIndexForRow(row);
-          if (resolved === null) return;
-          index = resolved;
-        }
-      } else if (event.type === 'click' && isPlaylistMainPlayButton(target)) {
-        shouldPlay = true;
-        index = 0;
-      }
-      if (!shouldPlay) return;
+      if (!target?.closest || event.type !== 'click' || !isPlaylistMainPlayButton(target)) return;
       try {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation?.();
       } catch {}
-      void playFilteredRespectingSpotify(index);
+      void playFilteredRespectingSpotify();
     }
 
     function installPlaybackBridge() {
-      document.addEventListener('click', interceptNativePlayback, true);
-      document.addEventListener('dblclick', interceptNativePlayback, true);
-      document.addEventListener('keydown', interceptNativePlayback, true);
+      document.addEventListener('click', interceptPlaylistPlay, true);
     }
-    return { maintainPlaybackSession, playFilteredRespectingSpotify, playFiltered, installPlaybackBridge };
+    return { spotifyShuffleState, maintainPlaybackSession, playFilteredRespectingSpotify, playFiltered, isSmartSearchPlaybackControl, installPlaybackBridge };
   })();
-
   // src/ui/results.js
-  const __mod16 = (() => {
+  const __mod14 = (() => {
     const { RESULTS_HOST_ID, RENDER_CHUNK } = __mod2;
     const { state } = __mod0;
     const { loadConfig, updateConfig } = __mod4;
-    const { SYNTAX_REFERENCE } = __mod5;
-    const { findPlaylistPage, findTracklistContainer, hideNativeTracklist, restoreNativeTracklist, setNativeSmartState } = __mod8;
-    const { playFiltered } = __mod15;
+    const { findPlaylistPage, findTracklistContainer, hideNativeTracklist, restoreNativeTracklist, setAdvancedViewState } = __mod11;
+    const { playFilteredRespectingSpotify } = __mod13;
+
     function formatDuration(ms) {
       const total = Math.max(0, Math.floor(Number(ms || 0) / 1000));
       return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
@@ -2266,7 +1879,6 @@
       catch { return date.toLocaleDateString(); }
     }
 
-
     function queryUsesYear(node) {
       if (!node || typeof node !== 'object') return false;
       if (['year-eq', 'year-gt', 'year-gte', 'year-lt', 'year-lte', 'year-range'].includes(node.kind)) return true;
@@ -2275,8 +1887,8 @@
       return false;
     }
 
-    function syntaxHelpText() {
-      return SYNTAX_REFERENCE.filter((item) => item.advanced !== false).slice(0, 7).map((item) => `<code>${item.example}</code>`).join(' · ');
+    function playIconSvg() {
+      return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5.4v13.2c0 .72.79 1.15 1.4.76l10.15-6.6a.9.9 0 0 0 0-1.52L9.4 4.64A.9.9 0 0 0 8 5.4Z"></path></svg>`;
     }
 
     function ensureHost() {
@@ -2293,13 +1905,12 @@
         host.innerHTML = `<div class="ss1-shell">
           <div class="ss1-toolbar" hidden>
             <div class="ss1-summary"><span class="ss1-smart-dot" aria-hidden="true"></span><strong>Smart Search</strong><span class="ss1-count"></span><span class="ss1-progress"></span></div>
-            <div class="ss1-actions"><button class="ss1-button primary" data-action="play" type="button">▶ Play results</button><button class="ss1-button" data-action="shuffle" type="button">⇄ Shuffle</button><button class="ss1-button icon" data-action="collapse" type="button" aria-label="Collapse results">⌃</button></div>
+            <div class="ss1-actions"><button class="ss1-button primary" data-action="play" type="button">▶ Play results</button><button class="ss1-button icon" data-action="collapse" type="button" aria-label="Collapse results">⌃</button></div>
           </div>
           <div class="ss1-body" hidden>
             <div class="ss1-column-header"><span>#</span><span>Title</span><span class="ss1-album-column">Album</span><span class="ss1-date-column">Date added</span><span style="text-align:right">Time</span></div>
             <div class="ss1-status" role="status" aria-live="polite" hidden></div>
             <div class="ss1-results"></div><div class="ss1-sentinel"></div>
-            <div class="ss1-help" hidden>Compact syntax: ${syntaxHelpText()}</div>
           </div>
           <div class="ss1-collapsed-note" hidden>Results are collapsed. Playback still uses the complete filtered result set.</div>
         </div>`;
@@ -2307,8 +1918,7 @@
         state.resultsHost = host;
         state.resultsList = host.querySelector('.ss1-results');
         state.resultsSentinel = host.querySelector('.ss1-sentinel');
-        host.querySelector('[data-action="play"]')?.addEventListener('click', () => playFiltered(0, false));
-        host.querySelector('[data-action="shuffle"]')?.addEventListener('click', () => playFiltered(0, true));
+        host.querySelector('[data-action="play"]')?.addEventListener('click', () => void playFilteredRespectingSpotify());
         host.querySelector('[data-action="collapse"]')?.addEventListener('click', () => {
           const config = updateConfig({ resultsCollapsed: !loadConfig().resultsCollapsed });
           renderSmartSearch(config);
@@ -2332,15 +1942,23 @@
       row.className = 'ss1-row';
       row.tabIndex = 0;
       row.dataset.uri = track.uri;
+      row.dataset.resultIndex = String(resultIndex);
       row.setAttribute('aria-label', `${track.title} — ${track.artists.join(', ')}`);
       const number = document.createElement('div'); number.className = 'ss1-row-number';
       const index = document.createElement('span'); index.className = 'ss1-row-index'; index.textContent = String(resultIndex + 1);
-      const play = document.createElement('button'); play.className = 'ss1-row-play'; play.type = 'button'; play.textContent = '▶'; play.setAttribute('aria-label', `Play ${track.title}`);
-      play.addEventListener('click', (event) => { event.stopPropagation(); void playFiltered(resultIndex, false); });
+      const play = document.createElement('button');
+      play.className = 'ss1-row-play';
+      play.type = 'button';
+      play.innerHTML = playIconSvg();
+      play.setAttribute('aria-label', `Play ${track.title}`);
+      play.addEventListener('click', (event) => { event.stopPropagation(); void playFilteredRespectingSpotify(resultIndex); });
       number.append(index, play);
       const titleCell = document.createElement('div'); titleCell.className = 'ss1-title-cell';
-      if (track.image) { const image = document.createElement('img'); image.className = 'ss1-cover'; image.src = track.image; image.alt = ''; image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'; titleCell.appendChild(image); }
-      else { const placeholder = document.createElement('div'); placeholder.className = 'ss1-cover-placeholder'; titleCell.appendChild(placeholder); }
+      if (track.image) {
+        const image = document.createElement('img'); image.className = 'ss1-cover'; image.src = track.image; image.alt = ''; image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'; titleCell.appendChild(image);
+      } else {
+        const placeholder = document.createElement('div'); placeholder.className = 'ss1-cover-placeholder'; titleCell.appendChild(placeholder);
+      }
       const stack = document.createElement('div'); stack.className = 'ss1-title-stack';
       const title = document.createElement('div'); title.className = 'ss1-title'; title.textContent = track.title;
       const artists = document.createElement('div'); artists.className = 'ss1-artists'; artists.textContent = track.artists.join(', '); stack.append(title, artists); titleCell.appendChild(stack);
@@ -2348,8 +1966,13 @@
       const added = document.createElement('div'); added.className = 'ss1-added ss1-date-column'; added.textContent = formatAddedDate(track.addedAt);
       const duration = document.createElement('div'); duration.className = 'ss1-duration'; duration.textContent = formatDuration(track.duration);
       row.append(number, titleCell, album, added, duration);
-      row.addEventListener('dblclick', () => void playFiltered(resultIndex, false));
-      row.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); void playFiltered(resultIndex, false); } });
+      row.addEventListener('dblclick', () => void playFilteredRespectingSpotify(resultIndex));
+      row.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          void playFilteredRespectingSpotify(resultIndex);
+        }
+      });
       return row;
     }
 
@@ -2380,11 +2003,9 @@
       const host = state.resultsHost;
       if (!host) return;
       const play = host.querySelector('[data-action="play"]');
-      const shuffle = host.querySelector('[data-action="shuffle"]');
       const progress = host.querySelector('.ss1-progress');
       const disabled = state.playbackBusy || !state.filtered.length || state.queryErrors.length > 0;
       if (play) { play.disabled = disabled; play.textContent = state.playbackBusy ? 'Starting…' : '▶ Play results'; }
-      if (shuffle) shuffle.disabled = disabled;
       if (progress) {
         const session = state.playbackSession;
         const belongs = session?.active && session.query === state.query && session.sequence.length > 0 && state.filtered.length > 0;
@@ -2393,22 +2014,23 @@
       updatePlayingRowStyles();
     }
 
+    function maintainSmartSearchView() {
+      const config = loadConfig();
+      const active = config.enabled && Boolean(state.query.trim());
+      if (!active) return;
+      setAdvancedViewState(true);
+      hideNativeTracklist();
+      ensureHost();
+    }
+
     function renderSmartSearch(config = loadConfig()) {
       const active = config.enabled && Boolean(state.query.trim());
-      if (active && !state.queryErrors.length && !state.yearMetadataLoading && (state.nativeAdapterMode === 'native' || state.nativeAdapterMode === 'attaching')) {
-        restoreNativeTracklist();
-        const existing = document.getElementById(RESULTS_HOST_ID);
-        if (existing) existing.hidden = true;
-        setNativeSmartState(true);
-        return;
-      }
       const host = ensureHost();
       if (!host) return;
       const toolbar = host.querySelector('.ss1-toolbar');
       const body = host.querySelector('.ss1-body');
       const status = host.querySelector('.ss1-status');
       const count = host.querySelector('.ss1-count');
-      const help = host.querySelector('.ss1-help');
       const collapsedNote = host.querySelector('.ss1-collapsed-note');
       const collapse = host.querySelector('[data-action="collapse"]');
       host.hidden = !active;
@@ -2416,14 +2038,15 @@
         if (toolbar) toolbar.hidden = true;
         if (body) body.hidden = true;
         if (collapsedNote) collapsedNote.hidden = true;
-        setNativeSmartState(false);
+        setAdvancedViewState(false);
         restoreNativeTracklist();
         return;
       }
-      setNativeSmartState(true);
+
+      setAdvancedViewState(true);
       hideNativeTracklist();
       if (toolbar) toolbar.hidden = false;
-      if (count) count.textContent = `${state.filtered.length} result${state.filtered.length === 1 ? '' : 's'} · compatibility mode`;
+      if (count) count.textContent = `${state.filtered.length} result${state.filtered.length === 1 ? '' : 's'}`;
       if (collapse) {
         collapse.textContent = config.resultsCollapsed ? '⌄' : '⌃';
         collapse.title = config.resultsCollapsed ? 'Expand results' : 'Collapse results';
@@ -2435,7 +2058,6 @@
       } else {
         if (body) body.hidden = false;
         if (collapsedNote) collapsedNote.hidden = true;
-        if (help) help.hidden = !config.showSyntaxHelp;
         if (status) { status.hidden = true; status.className = 'ss1-status'; }
         if (state.queryErrors.length) {
           if (status) { status.hidden = false; status.className = 'ss1-status query-error'; status.textContent = state.queryErrors.join(' '); }
@@ -2443,8 +2065,8 @@
           if (status) { status.hidden = false; status.textContent = 'Loading release years…'; }
         } else if (state.loading) {
           if (status) { status.hidden = false; status.textContent = 'Loading playlist…'; }
-        } else if (state.lastError || state.nativeAdapterError) {
-          if (status) { status.hidden = false; status.className = 'ss1-status error'; status.textContent = state.lastError || 'Spotify native list integration is unavailable; using compatibility mode.'; }
+        } else if (state.lastError) {
+          if (status) { status.hidden = false; status.className = 'ss1-status error'; status.textContent = state.lastError; }
         } else if (!state.filtered.length && queryUsesYear(state.queryAst) && state.lastYearMetadataSummary?.failed) {
           if (status) { status.hidden = false; status.className = 'ss1-status query-error'; status.textContent = 'Could not load release-year metadata for this playlist.'; }
         } else if (!state.filtered.length) {
@@ -2460,12 +2082,12 @@
       state.resultsHost = null; state.resultsList = null; state.resultsSentinel = null;
       try { state.resultsObserver?.disconnect(); } catch {}
       state.resultsObserver = null; state.renderedCount = 0;
+      setAdvancedViewState(false);
     }
-    return { ensureHost, updatePlayingRowStyles, updatePlaybackUi, renderSmartSearch, clearResultsUi };
+    return { ensureHost, updatePlayingRowStyles, updatePlaybackUi, maintainSmartSearchView, renderSmartSearch, clearResultsUi };
   })();
-
   // src/search/matcher.js
-  const __mod17 = (() => {
+  const __mod15 = (() => {
     function matchNode(track, node) {
       switch (node?.kind) {
         case 'true': return true;
@@ -2498,15 +2120,96 @@
     }
     return { matchNode, filterTracks };
   })();
+  // src/spotify/react-internals.js
+  const __mod16 = (() => {
+    function reactFiberFor(element) {
+      if (!element) return null;
+      for (const key of Object.getOwnPropertyNames(element)) {
+        if (!key.startsWith('__reactFiber$') && !key.startsWith('__reactInternalInstance$')) continue;
+        try { return element[key] ?? null; } catch { return null; }
+      }
+      return null;
+    }
 
+    function fiberChainFromFiber(start, maxDepth = 48) {
+      const result = [];
+      let fiber = start;
+      const seen = new Set();
+      while (fiber && result.length < maxDepth && !seen.has(fiber)) {
+        seen.add(fiber);
+        result.push(fiber);
+        fiber = fiber.return;
+      }
+      return result;
+    }
+
+    function fiberChainFrom(element, maxDepth = 48) {
+      return fiberChainFromFiber(reactFiberFor(element), maxDepth);
+    }
+
+    function propsForFiber(fiber) {
+      return fiber?.memoizedProps && typeof fiber.memoizedProps === 'object'
+        ? fiber.memoizedProps
+        : fiber?.pendingProps && typeof fiber.pendingProps === 'object'
+          ? fiber.pendingProps
+          : null;
+    }
+    return { reactFiberFor, fiberChainFromFiber, fiberChainFrom, propsForFiber };
+  })();
+  // src/spotify/search-control.js
+  const __mod17 = (() => {
+    const { fiberChainFrom, propsForFiber } = __mod16;
+    const { consoleWarn } = __mod1;
+
+    let nativeFilterSuppressed = false;
+
+    function searchControllerFor(input) {
+      if (!input) return null;
+      for (const fiber of fiberChainFrom(input, 32)) {
+        const props = propsForFiber(fiber);
+        if (!props || (typeof props.onFilter !== 'function' && typeof props.onClear !== 'function')) continue;
+        let hook = fiber.memoizedState;
+        let textHook = null;
+        let guard = 0;
+        while (hook && guard++ < 24) {
+          if (typeof hook.memoizedState === 'string' && typeof hook.queue?.dispatch === 'function') {
+            textHook = hook;
+            break;
+          }
+          hook = hook.next;
+        }
+        return { props, textHook };
+      }
+      return null;
+    }
+
+    function suppressSpotifyNativeFilter(input, value) {
+      const controller = searchControllerFor(input);
+      if (!nativeFilterSuppressed) {
+        nativeFilterSuppressed = true;
+        try { controller?.props?.onClear?.(); }
+        catch (error) { consoleWarn('Could not clear Spotify native playlist filter.', error); }
+      }
+      queueMicrotask(() => {
+        try { controller?.textHook?.queue?.dispatch?.(value); }
+        catch (error) { consoleWarn('Could not synchronize Spotify search text state.', error); }
+      });
+    }
+
+    function releaseSpotifyNativeFilterSuppression() {
+      nativeFilterSuppressed = false;
+    }
+    return { suppressSpotifyNativeFilter, releaseSpotifyNativeFilterSuppression };
+  })();
   // src/ui/native-search.js
   const __mod18 = (() => {
     const { state } = __mod0;
     const { loadConfig } = __mod4;
-    const { emit } = __mod7;
+    const { emit } = __mod8;
     const { smartSyntaxUsed } = __mod5;
-    const { nativeSearchCandidates } = __mod8;
-    const { primeNativeListTarget, suppressSpotifyNativeFilter, endNativeSmartMode } = __mod12;
+    const { nativeSearchCandidates } = __mod11;
+    const { suppressSpotifyNativeFilter, releaseSpotifyNativeFilterSuppression } = __mod17;
+
     let nativeBlankConfirmTimer = null;
 
     function cancelBlankConfirmation() {
@@ -2524,7 +2227,7 @@
         if (!queryAtSchedule || state.query !== queryAtSchedule) return;
         if (!candidate?.isConnected || String(candidate.value || '').trim()) return;
         state.smartRefreshPending = false;
-        endNativeSmartMode();
+        releaseSpotifyNativeFilterSuppression();
         emit('advanced-cleared');
       }, 120);
     }
@@ -2548,15 +2251,14 @@
         return;
       }
 
-      primeNativeListTarget();
       if (state.query) {
-        if (!event && !value.trim() && (state.nativeAdapterMode === 'native' || state.nativeAdapterMode === 'attaching')) {
+        if (!event && !value.trim()) {
           confirmSearchWasCleared(candidate);
           return;
         }
         cancelBlankConfirmation();
         state.smartRefreshPending = false;
-        endNativeSmartMode();
+        releaseSpotifyNativeFilterSuppression();
         emit('advanced-cleared');
       }
     }
@@ -2570,6 +2272,7 @@
       state.nativeSearchInput?.classList.remove('smart-search-native-active');
       state.nativeSearchInput = null;
       state.nativeSearchListener = null;
+      releaseSpotifyNativeFilterSuppression();
     }
 
     function hookNativeSearch() {
@@ -2577,10 +2280,7 @@
       const candidate = nativeSearchCandidates()[0] || null;
       if (!candidate) {
         if (!state.nativeSearchMissingSince) state.nativeSearchMissingSince = Date.now();
-        if (state.query && Date.now() - state.nativeSearchMissingSince > 1000) {
-          endNativeSmartMode();
-          emit('advanced-cleared');
-        }
+        if (state.query && Date.now() - state.nativeSearchMissingSince > 1000) emit('advanced-cleared');
         return;
       }
       state.nativeSearchMissingSince = 0;
@@ -2598,10 +2298,10 @@
     }
     return { detachNativeSearch, hookNativeSearch };
   })();
-
   // src/spotify/track-normalizer.js
   const __mod19 = (() => {
     const { firstDefined, normalizeText } = __mod1;
+
     function directTrackCandidate(item) {
       if (!item || typeof item !== 'object') return null;
       const wrappers = [item.track, item.itemV2, item.item, item.content, item.entity, item];
@@ -2796,7 +2496,6 @@
     }
     return { releaseYearFromValue, trackUriFromUnknown, normalizeTrackItem, findBestTrackArray, normalizeItems };
   })();
-
   // src/spotify/playlist-source.js
   const __mod20 = (() => {
     const { CACHE_TTL_MS, PAGE_SIZE } = __mod2;
@@ -2804,7 +2503,8 @@
     const { firstDefined, sleep, consoleWarn } = __mod1;
     const { detectCapabilities, playlistGraphQLDefinitions } = __mod6;
     const { findBestTrackArray, normalizeItems } = __mod19;
-    const { recordDiagnostic } = __mod10;
+    const { recordDiagnostic } = __mod7;
+
     function namedGraphQLType(typeNode) {
       let node = typeNode;
       while (node?.type) node = node.type;
@@ -2973,14 +2673,110 @@
       recordDiagnostic('playlist-loaded', `${source}; ${tracks.length} tracks${changed ? '; changed' : ''}`);
       return { tracks, source, fingerprint, changed, cached: false };
     }
-    return { getPlaylistTracks, fingerprintTracks, invalidatePlaylistCache, clearPlaylistCache };
+    return { fingerprintTracks, invalidatePlaylistCache, clearPlaylistCache, getPlaylistTracks };
   })();
-
-  // src/spotify/year-metadata.js
+  // src/spotify/mutation-watcher.js
   const __mod21 = (() => {
+    const { MUTATION_DEBOUNCE_MS, MUTATION_REFRESH_COOLDOWN_MS, RESULTS_HOST_ID } = __mod2;
     const { state } = __mod0;
-    const { recordDiagnostic } = __mod10;
+    const { loadConfig } = __mod4;
+    const { emit } = __mod8;
+    const { findPlaylistPage, findTracklistContainer } = __mod11;
+    const { recordDiagnostic } = __mod7;
+
+    let observer = null;
+    let root = null;
+    let debounceTimer = null;
+    let lastRefreshAt = 0;
+    let suspendedUntil = 0;
+
+    function suspendMutationWatcher(ms = 300) {
+      suspendedUntil = Math.max(suspendedUntil, Date.now() + ms);
+    }
+
+    function elementForMutation(mutation) {
+      const target = mutation.target;
+      if (!target) return null;
+      return target.nodeType === Node.ELEMENT_NODE ? target : target.parentElement;
+    }
+
+    function isOwnMutation(mutation) {
+      const target = elementForMutation(mutation);
+      return Boolean(target?.closest?.(`#${RESULTS_HOST_ID}`));
+    }
+
+    function isInsideNativeTracklist(mutation) {
+      const target = elementForMutation(mutation);
+      const tracklist = findTracklistContainer();
+      return Boolean(target && tracklist && (target === tracklist || tracklist.contains(target)));
+    }
+
+    function mentionsPlaylistCount(mutation) {
+      const target = elementForMutation(mutation);
+      const candidates = [
+        target?.textContent || '',
+        ...[...(mutation.addedNodes ?? [])].map((node) => node.textContent || ''),
+        ...[...(mutation.removedNodes ?? [])].map((node) => node.textContent || ''),
+      ];
+      return candidates.some((text) => /\b\d[\d,.\s]*\s+(?:songs?|tracks?)\b/i.test(String(text).slice(0, 300)));
+    }
+
+    function scheduleCandidateRefresh(reason = 'dom-mutation') {
+      if (!loadConfig().livePlaylistRefresh || Date.now() < suspendedUntil) return;
+      if (debounceTimer !== null) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        const now = Date.now();
+        if (now - lastRefreshAt < MUTATION_REFRESH_COOLDOWN_MS) return;
+        lastRefreshAt = now;
+        recordDiagnostic('playlist-mutation-candidate', reason);
+        emit('playlist-mutation-candidate', { reason });
+      }, MUTATION_DEBOUNCE_MS);
+    }
+
+    function maintainMutationWatcher() {
+      if (!loadConfig().livePlaylistRefresh || !state.playlistId) {
+        stopMutationWatcher();
+        return;
+      }
+
+      // Observe the playlist page, not the virtualized track rows themselves. Spotify
+      // constantly mounts/unmounts rows while scrolling; treating those operations as
+      // playlist edits caused unnecessary reloads and visible UI fights in 1.1.1.
+      const nextRoot = findPlaylistPage();
+      if (!nextRoot) return;
+      if (observer && root === nextRoot) return;
+      stopMutationWatcher();
+      root = nextRoot;
+      observer = new MutationObserver((mutations) => {
+        if (Date.now() < suspendedUntil) return;
+        for (const mutation of mutations) {
+          if (isOwnMutation(mutation)) continue;
+          if (isInsideNativeTracklist(mutation)) continue;
+          if (mentionsPlaylistCount(mutation)) {
+            scheduleCandidateRefresh('playlist-count-change');
+            return;
+          }
+        }
+      });
+      observer.observe(root, { childList: true, characterData: true, subtree: true });
+    }
+
+    function stopMutationWatcher() {
+      try { observer?.disconnect(); } catch {}
+      observer = null;
+      root = null;
+      if (debounceTimer !== null) clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
+    return { suspendMutationWatcher, maintainMutationWatcher, stopMutationWatcher };
+  })();
+  // src/spotify/year-metadata.js
+  const __mod22 = (() => {
+    const { state } = __mod0;
+    const { recordDiagnostic } = __mod7;
     const { releaseYearFromValue } = __mod19;
+
     const yearCache = new Map();
 
     function trackIdFromUri(uri) {
@@ -3076,26 +2872,318 @@
     function clearReleaseYearCache() {
       yearCache.clear();
     }
-    return { ensureReleaseYears, queryNeedsYearMetadata, clearReleaseYearCache };
+    return { queryNeedsYearMetadata, ensureReleaseYears, clearReleaseYearCache };
   })();
+  // src/spotify/sort-bridge.js
+  const __mod23 = (() => {
+    const { state } = __mod0;
+    const { findPlaylistPage } = __mod11;
 
+    const SORT_KEYS = {
+      custom: ['custom order', 'playlist order'],
+      title: ['title', 'track title'],
+      artist: ['artist'],
+      album: ['album'],
+      added: ['recently added', 'date added', 'added'],
+      duration: ['duration', 'time'],
+    };
+
+    function normalizeLabel(value) {
+      return String(value ?? '').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+    }
+
+    function keyFromLabel(value) {
+      const text = normalizeLabel(value);
+      if (!text) return null;
+      for (const [key, aliases] of Object.entries(SORT_KEYS)) {
+        if (aliases.some((alias) => text === alias || text.includes(alias))) return key;
+      }
+      return null;
+    }
+
+    function directionFromAria(value) {
+      const text = normalizeLabel(value);
+      if (text === 'descending') return 'desc';
+      if (text === 'ascending') return 'asc';
+      return null;
+    }
+
+    function readAriaSort(page) {
+      for (const element of page?.querySelectorAll?.('[aria-sort]') ?? []) {
+        const direction = directionFromAria(element.getAttribute('aria-sort'));
+        if (!direction) continue;
+        const key = keyFromLabel(`${element.textContent || ''} ${element.getAttribute('aria-label') || ''}`);
+        if (key) return { key, direction, source: 'aria-sort' };
+      }
+      return null;
+    }
+
+    function sortControlCandidates(page) {
+      if (!page) return [];
+      return [...page.querySelectorAll('button[role="combobox"], [role="combobox"], button[aria-label*="sort" i], button[title*="sort" i], [class*="sort" i] button')].filter((element) => {
+        const text = `${element.textContent || ''} ${element.getAttribute?.('aria-label') || ''} ${element.getAttribute?.('title') || ''}`;
+        return Boolean(keyFromLabel(text));
+      });
+    }
+
+    function readSortControl(page) {
+      for (const element of sortControlCandidates(page)) {
+        const combined = `${element.textContent || ''} ${element.getAttribute?.('aria-label') || ''} ${element.getAttribute?.('title') || ''}`;
+        const key = keyFromLabel(combined);
+        if (!key) continue;
+        const lower = normalizeLabel(combined);
+        let direction = null;
+        if (/descending|newest|latest/.test(lower)) direction = 'desc';
+        else if (/ascending|oldest/.test(lower)) direction = 'asc';
+        // Spotify's visible "Recently added" control is newest-first by default.
+        if (!direction) direction = key === 'added' ? 'desc' : 'asc';
+        return { key, direction, source: 'sort-control' };
+      }
+      return null;
+    }
+
+    function readSpotifySortState() {
+      const page = findPlaylistPage();
+      return readAriaSort(page) ?? readSortControl(page) ?? { key: 'custom', direction: 'asc', source: 'default' };
+    }
+
+    function sortSignature(sortState = readSpotifySortState()) {
+      return `${sortState?.key || 'custom'}:${sortState?.direction || 'asc'}`;
+    }
+
+    function compareText(a, b) {
+      return String(a ?? '').localeCompare(String(b ?? ''), undefined, { sensitivity: 'base', numeric: true });
+    }
+
+    function selectorForKey(key) {
+      if (key === 'title') return (track) => track.titleNorm ?? track.title ?? '';
+      if (key === 'artist') return (track) => track.artistNorm?.[0] ?? track.artists?.[0] ?? '';
+      if (key === 'album') return (track) => track.albumNorm ?? track.album ?? '';
+      if (key === 'added') return (track) => Date.parse(track.addedAt || '') || 0;
+      if (key === 'duration') return (track) => Number(track.duration || 0);
+      return (track) => Number(track.playlistIndex || 0);
+    }
+
+    function sortTracks(tracks, sortState = state.sortState) {
+      const source = [...(tracks ?? [])];
+      const key = sortState?.key || 'custom';
+      const direction = sortState?.direction === 'desc' ? -1 : 1;
+      const selector = selectorForKey(key);
+      return source.map((track, index) => ({ track, index, value: selector(track) }))
+        .sort((a, b) => {
+          const cmp = typeof a.value === 'number' && typeof b.value === 'number'
+            ? a.value - b.value
+            : compareText(a.value, b.value);
+          return cmp ? cmp * direction : a.index - b.index;
+        })
+        .map((entry) => entry.track);
+    }
+
+    function syncSpotifySortState() {
+      const next = readSpotifySortState();
+      const signature = sortSignature(next);
+      if (signature === state.sortSignature) return false;
+      state.sortState = next;
+      state.sortSignature = signature;
+      return true;
+    }
+    return { readSpotifySortState, sortSignature, sortTracks, syncSpotifySortState };
+  })();
+  // src/ui/syntax-help.js
+  const __mod24 = (() => {
+    const { state } = __mod0;
+    const { loadConfig } = __mod4;
+    const { normalizeText } = __mod1;
+
+    const boundInputs = new WeakSet();
+
+
+    function bindInputLifecycle(input) {
+      if (!input || boundInputs.has(input)) return;
+      boundInputs.add(input);
+      input.addEventListener('focus', () => {
+        queueMicrotask(() => maintainSyntaxHelp());
+      });
+      input.addEventListener('blur', () => {
+        // Suggestion buttons prevent mousedown's default action, so selecting a
+        // suggestion keeps the input focused. Any real focus departure should hide
+        // the helper immediately instead of leaving it floating over the playlist.
+        setTimeout(() => {
+          if (document.activeElement !== input) clearSyntaxHelp();
+        }, 0);
+      });
+    }
+
+    function currentInput() {
+      return state.nativeSearchInput?.isConnected ? state.nativeSearchInput : null;
+    }
+
+    function ensureHost() {
+      let host = state.syntaxHelpHost;
+      if (host?.isConnected) return host;
+      host = document.createElement('div');
+      host.className = 'ss1-syntax-assist';
+      host.hidden = true;
+      host.setAttribute('role', 'listbox');
+      host.setAttribute('aria-label', 'Smart Search suggestions');
+      document.body.appendChild(host);
+      state.syntaxHelpHost = host;
+      return host;
+    }
+
+    function replaceActiveSegment(input, replacement) {
+      const value = String(input.value || '');
+      const lastSemicolon = value.lastIndexOf(';');
+      const lastAmp = value.lastIndexOf('&');
+      const separatorIndex = Math.max(lastSemicolon, lastAmp);
+      const prefix = separatorIndex >= 0 ? value.slice(0, separatorIndex + 1) : '';
+      const whitespace = value.slice(separatorIndex + 1).match(/^\s*/)?.[0] ?? '';
+      input.value = `${prefix}${whitespace}${replacement}`;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.focus();
+    }
+
+    function artistSuggestions(query) {
+      const lastSemicolon = query.lastIndexOf(';');
+      const lastAmp = query.lastIndexOf('&');
+      const segment = query.slice(Math.max(lastSemicolon, lastAmp) + 1).trimStart();
+      if (!segment.startsWith('@')) return [];
+      const needle = normalizeText(segment.slice(1).trim());
+      if (!needle) return [];
+      const seen = new Set();
+      const matches = [];
+      for (const track of state.tracks) {
+        for (const artist of track.artists ?? []) {
+          const normalized = normalizeText(artist);
+          if (!normalized || seen.has(normalized)) continue;
+          if (!normalized.startsWith(needle) && !normalized.includes(needle)) continue;
+          seen.add(normalized);
+          matches.push(artist);
+          if (matches.length >= 6) return matches;
+        }
+      }
+      return matches;
+    }
+
+    function syntaxSuggestions(query) {
+      const trimmed = String(query || '').trim();
+      const result = [];
+      if (/^@[^;&]*$/i.test(trimmed) || /[;&]\s*@[^;&]*$/i.test(trimmed)) {
+        for (const artist of artistSuggestions(query)) {
+          result.push({ label: `@${artist}`, hint: 'Exact artist', value: `@${artist}`, kind: 'artist' });
+        }
+      }
+      if (/year\s*:\s*$/i.test(trimmed)) {
+        result.push(
+          { label: 'year:2026', hint: 'One year', value: 'year:2026' },
+          { label: 'year:2017-2020', hint: 'Year range', value: 'year:2017-2020' },
+          { label: 'year:>=2020', hint: '2020 or later', value: 'year:>=2020' },
+        );
+      }
+      if (!result.length) {
+        result.push(
+          { label: '@Artist', hint: 'Exact artist', value: '@' },
+          { label: '&', hint: 'AND', value: `${trimmed}${trimmed ? ' & ' : '& '}`, full: true },
+          { label: ';', hint: 'OR', value: `${trimmed}${trimmed ? ';' : ';'}`, full: true },
+          { label: '-term', hint: 'Exclude', value: `${trimmed}${trimmed ? ' & -' : '-'}`, full: true },
+          { label: 'year:', hint: 'Release year', value: `${trimmed}${trimmed ? ' & year:' : 'year:'}`, full: true },
+        );
+      }
+      return result.slice(0, 6);
+    }
+
+    function positionHost(host, input) {
+      const rect = input.getBoundingClientRect();
+      const maxWidth = Math.min(520, Math.max(300, window.innerWidth - 24));
+      const width = Math.min(maxWidth, Math.max(320, rect.width * 1.65));
+      let left = rect.left;
+      if (left + width > window.innerWidth - 12) left = Math.max(12, window.innerWidth - width - 12);
+      host.style.width = `${width}px`;
+      host.style.left = `${Math.max(12, left)}px`;
+      host.style.top = `${Math.min(window.innerHeight - 12, rect.bottom + 8)}px`;
+    }
+
+    function render(host, input) {
+      host.replaceChildren();
+      const query = String(state.query || input.value || '');
+      const suggestions = syntaxSuggestions(query);
+      if (!suggestions.length) { host.hidden = true; return; }
+
+      const head = document.createElement('div');
+      head.className = 'ss1-syntax-assist-head';
+      const title = document.createElement('strong');
+      title.textContent = 'Smart Search';
+      const sub = document.createElement('span');
+      sub.textContent = 'Syntax help';
+      head.append(title, sub);
+      host.appendChild(head);
+
+      const list = document.createElement('div');
+      list.className = 'ss1-syntax-assist-list';
+      for (const item of suggestions) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'ss1-syntax-assist-item';
+        button.setAttribute('role', 'option');
+        const code = document.createElement('code');
+        code.textContent = item.label;
+        const hint = document.createElement('span');
+        hint.textContent = item.hint;
+        button.append(code, hint);
+        button.addEventListener('mousedown', (event) => event.preventDefault());
+        button.addEventListener('click', () => {
+          if (item.full) {
+            input.value = item.value;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.focus();
+          } else {
+            replaceActiveSegment(input, item.value);
+          }
+        });
+        list.appendChild(button);
+      }
+      host.appendChild(list);
+      positionHost(host, input);
+      host.hidden = false;
+    }
+
+    function maintainSyntaxHelp() {
+      const host = ensureHost();
+      const input = currentInput();
+      const config = loadConfig();
+      if (input) bindInputLifecycle(input);
+      if (!config.enabled || !config.showSyntaxHelp || !input || !state.query.trim() || document.activeElement !== input) {
+        host.hidden = true;
+        return;
+      }
+      render(host, input);
+    }
+
+    function clearSyntaxHelp() {
+      if (state.syntaxHelpHost) state.syntaxHelpHost.hidden = true;
+    }
+    return { maintainSyntaxHelp, clearSyntaxHelp };
+  })();
   // src/controller.js
-  const __mod22 = (() => {
+  const __mod25 = (() => {
     const { CACHE_TTL_MS } = __mod2;
     const { state } = __mod0;
-    const { on, emit } = __mod7;
+    const { on, emit } = __mod8;
     const { loadConfig } = __mod4;
     const { parseQuery } = __mod5;
-    const { filterTracks } = __mod17;
-    const { playlistIdFromLocation, restoreNativeTracklist, setNativeSmartState } = __mod8;
-    const { renderSmartSearch, clearResultsUi, updatePlaybackUi } = __mod16;
+    const { filterTracks } = __mod15;
+    const { playlistIdFromLocation, restoreNativeTracklist, setAdvancedViewState } = __mod11;
+    const { renderSmartSearch, clearResultsUi, updatePlaybackUi, maintainSmartSearchView } = __mod14;
     const { hookNativeSearch, detachNativeSearch } = __mod18;
-    const { beginNativeSmartMode, endNativeSmartMode, maintainNativeSmartMode, primeNativeListTarget } = __mod12;
+    const { releaseSpotifyNativeFilterSuppression } = __mod17;
     const { getPlaylistTracks, invalidatePlaylistCache } = __mod20;
-    const { maintainMutationWatcher, stopMutationWatcher, suspendMutationWatcher } = __mod11;
-    const { recordDiagnostic } = __mod10;
+    const { maintainMutationWatcher, stopMutationWatcher, suspendMutationWatcher } = __mod21;
+    const { recordDiagnostic } = __mod7;
     const { consoleError, consoleWarn, safeErrorMessage } = __mod1;
-    const { ensureReleaseYears, queryNeedsYearMetadata } = __mod21;
+    const { ensureReleaseYears, queryNeedsYearMetadata } = __mod22;
+    const { sortTracks, syncSpotifySortState } = __mod23;
+    const { maintainSyntaxHelp, clearSyntaxHelp } = __mod24;
+
     let eventsInstalled = false;
 
     function setSmartQuery(query) {
@@ -3104,12 +3192,13 @@
       state.queryAst = parsed.ast;
       state.queryErrors = parsed.errors;
       if (state.query.trim() && !parsed.errors.length) {
-        state.filtered = filterTracks(state.tracks, parsed);
+        state.filtered = sortTracks(filterTracks(state.tracks, parsed));
         if (!state.loading && state.tracks.length) state.lastError = null;
       } else {
         state.filtered = [];
       }
       renderSmartSearch();
+      maintainSyntaxHelp();
       return parsed;
     }
 
@@ -3134,7 +3223,6 @@
         state.loadingPlaylistId = null;
         setSmartQuery(state.query);
         recordDiagnostic('playlist-refresh', `${reason}${result.changed ? '; content changed' : ''}`);
-        if (state.query && !state.queryErrors.length && !state.smartRefreshPending && !state.yearMetadataLoading) beginNativeSmartMode(state.query);
         return result;
       } catch (error) {
         if (generation !== state.routeGeneration) return null;
@@ -3148,21 +3236,18 @@
     }
 
     async function handleAdvancedInput({ input, value }) {
+      syncSpotifySortState();
       const previousQuery = state.query;
       const entering = !previousQuery.trim();
       let parsed = setSmartQuery(value);
 
-      if (parsed.errors.length) {
-        endNativeSmartMode();
-        state.nativeAdapterMode = 'fallback';
-        state.nativeAdapterError = null;
-        renderSmartSearch();
-        return;
-      }
+      setAdvancedViewState(true);
+      maintainSmartSearchView();
+
+      if (parsed.errors.length) return;
 
       if (entering && state.playlistId) {
         state.smartRefreshPending = true;
-        state.nativeAdapterMode = 'attaching';
         try { await loadCurrentPlaylist(true, 'enter-smart-search'); }
         catch (error) { consoleWarn('Could not refresh playlist before Smart Search.', error); }
         finally { state.smartRefreshPending = false; }
@@ -3172,7 +3257,6 @@
 
       if (queryNeedsYearMetadata(parsed) && state.tracks.some((track) => track.year == null)) {
         state.yearMetadataLoading = true;
-        state.nativeAdapterMode = 'attaching';
         renderSmartSearch();
         try {
           state.lastYearMetadataSummary = await ensureReleaseYears(state.tracks);
@@ -3186,7 +3270,7 @@
         parsed = setSmartQuery(value);
       }
 
-      if (!state.smartRefreshPending && !state.yearMetadataLoading) beginNativeSmartMode(value);
+      maintainSmartSearchView();
     }
 
     function clearAdvancedQuery() {
@@ -3194,8 +3278,11 @@
       state.queryAst = { kind: 'true' };
       state.queryErrors = [];
       state.filtered = [];
-      state.nativeAdapterError = null;
+      state.smartRefreshPending = false;
+      releaseSpotifyNativeFilterSuppression();
+      setAdvancedViewState(false);
       renderSmartSearch();
+      clearSyntaxHelp();
     }
 
     async function refreshAfterMutation({ reason = 'mutation' } = {}) {
@@ -3238,9 +3325,10 @@
 
     function maintainBindings() {
       hookNativeSearch();
-      maintainNativeSmartMode();
       maintainMutationWatcher();
-      if (!state.query) primeNativeListTarget();
+      if (syncSpotifySortState() && state.query) setSmartQuery(state.query);
+      maintainSmartSearchView();
+      maintainSyntaxHelp();
     }
 
     async function handleRoute() {
@@ -3256,22 +3344,24 @@
         state.loading = false;
         state.loadingPlaylistId = null;
         state.lastError = null;
-        endNativeSmartMode();
         detachNativeSearch();
+        releaseSpotifyNativeFilterSuppression();
+        setAdvancedViewState(false);
         restoreNativeTracklist();
         stopMutationWatcher();
         clearResultsUi();
+        clearSyntaxHelp();
         return;
       }
 
       const changed = playlistId !== state.playlistId;
       if (changed) {
-        endNativeSmartMode();
         state.query = '';
         state.queryErrors = [];
         state.filtered = [];
         state.playlistId = playlistId;
         state.nativeSearchMissingSince = 0;
+        setAdvancedViewState(false);
         renderSmartSearch(config);
         await loadCurrentPlaylist(false, 'route-change');
       }
@@ -3283,24 +3373,18 @@
     function applyConfiguration() {
       const config = loadConfig();
       if (!config.enabled) {
-        endNativeSmartMode();
         detachNativeSearch();
         stopMutationWatcher();
         if (state.playbackSession) state.playbackSession.active = false;
         clearAdvancedQuery();
         restoreNativeTracklist();
-        setNativeSmartState(false);
+        setAdvancedViewState(false);
         renderSmartSearch(config);
         return;
       }
-      if (!config.preferNativeRows && state.query) {
-        endNativeSmartMode();
-        state.nativeAdapterMode = 'fallback';
-      } else if (config.preferNativeRows && state.query && !state.queryErrors.length) {
-        beginNativeSmartMode(state.query);
-      }
       hookNativeSearch();
       maintainMutationWatcher();
+      maintainSmartSearchView();
       renderSmartSearch(config);
       const playlistId = playlistIdFromLocation();
       if (playlistId && (!state.tracks.length || state.playlistId !== playlistId)) void loadCurrentPlaylist(false, 'config-change');
@@ -3311,30 +3395,28 @@
       const cached = state.cache.get(state.playlistId);
       if (cached && Date.now() - cached.loadedAt > CACHE_TTL_MS) void loadCurrentPlaylist(true, 'cache-ttl');
     }
-    return { loadCurrentPlaylist, handleRoute, setSmartQuery, installControllerEvents, maintainBindings, applyConfiguration, maybeRefreshExpiredCache };
+    return { setSmartQuery, loadCurrentPlaylist, installControllerEvents, maintainBindings, handleRoute, applyConfiguration, maybeRefreshExpiredCache };
   })();
-
   // src/lifecycle.js
-  const __mod23 = (() => {
+  const __mod26 = (() => {
     const { state } = __mod0;
     const { sleep, consoleWarn } = __mod1;
     const { injectStyles } = __mod3;
-    const { registerSettingsMenuDeferred } = __mod14;
-    const { updatePlayingRowStyles } = __mod16;
-    const { installPlaybackBridge, maintainPlaybackSession } = __mod15;
-    const { installNativeAdapterBridges } = __mod12;
-    const { installControllerEvents, handleRoute, maintainBindings, maybeRefreshExpiredCache } = __mod22;
-    const { playlistIdFromLocation } = __mod8;
-    const { recordDiagnostic } = __mod10;
+    const { registerSettingsMenuDeferred } = __mod10;
+    const { updatePlayingRowStyles } = __mod14;
+    const { installPlaybackBridge, maintainPlaybackSession } = __mod13;
+    const { installControllerEvents, handleRoute, maintainBindings, maybeRefreshExpiredCache } = __mod25;
+    const { playlistIdFromLocation } = __mod11;
+    const { recordDiagnostic } = __mod7;
     const { VERSION } = __mod2;
-    const { maybeShowReleaseNotes } = __mod13;
+    const { hasSeenCurrentRelease, maybeShowReleaseNotes } = __mod9;
+
     async function bootstrap() {
       while (!globalThis.Spicetify?.Platform || !globalThis.Spicetify?.Player) await sleep(100);
       state.S = globalThis.Spicetify;
       injectStyles();
       installControllerEvents();
       installPlaybackBridge();
-      installNativeAdapterBridges();
       registerSettingsMenuDeferred();
       recordDiagnostic('bootstrap', 'core ready');
       console.log(`[Smart Search] ${VERSION} core ready`);
@@ -3360,23 +3442,32 @@
           void handleRoute();
         }
         if (playlistIdFromLocation()) maybeRefreshExpiredCache();
-      }, 750);
+      }, 500);
 
       await handleRoute();
       recordDiagnostic('bootstrap', 'loaded');
       console.log(`[Smart Search] ${VERSION} loaded`);
-      setTimeout(() => {
-        try { maybeShowReleaseNotes(); } catch (error) { consoleWarn('Could not show release notes.', error); }
-      }, 350);
+      const releaseAttempts = [700, 1800, 3600, 6500];
+      const tryReleaseNotes = (attempt = 0) => {
+        if (hasSeenCurrentRelease() || attempt >= releaseAttempts.length) return;
+        setTimeout(async () => {
+          try {
+            const shown = await maybeShowReleaseNotes();
+            if (!shown && !hasSeenCurrentRelease()) tryReleaseNotes(attempt + 1);
+          } catch (error) {
+            consoleWarn('Could not show release notes.', error);
+            tryReleaseNotes(attempt + 1);
+          }
+        }, releaseAttempts[attempt]);
+      };
+      tryReleaseNotes();
     }
     return { bootstrap };
   })();
-
   // src/index.js
-  const __mod24 = (() => {
-    const { bootstrap } = __mod23;
+  const __mod27 = (() => {
+    const { bootstrap } = __mod26;
     void bootstrap();
     return {};
   })();
-
 })();
