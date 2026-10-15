@@ -52,8 +52,32 @@ async function fetchPlaylistViaPlatformAPI(playlistId) {
     try {
       const response = await api.getContents.call(api, argument);
       const items = Array.isArray(response?.items) ? response.items : Array.isArray(response) ? response : findBestTrackArray(response);
-      const tracks = normalizeItems(items, 0);
-      if (tracks.length || items.length === 0) return tracks;
+      const total = Number(firstDefined(response, [
+        ['totalLength'], ['totalCount'], ['total'], ['pagingInfo', 'total'], ['metadata', 'total'],
+      ]) ?? NaN);
+      let allItems = [...items];
+      // Some Spotify versions return a page instead of the complete playlist.
+      // Only page when an explicit total proves there are more entries. A
+      // client that ignores the offset must not silently truncate the list.
+      if (Number.isFinite(total) && total > items.length && items.length) {
+        let offset = items.length;
+        for (let page = 0; offset < total && page < 200; page++) {
+          const nextResponse = await api.getContents.call(api, argument, { offset, limit: PAGE_SIZE });
+          const next = Array.isArray(nextResponse?.items) ? nextResponse.items
+            : Array.isArray(nextResponse) ? nextResponse : findBestTrackArray(nextResponse);
+          if (!next.length) throw new Error(`PlaylistAPI pagination stopped at ${offset}/${total}`);
+          const first = normalizeItems(allItems.slice(0, Math.min(next.length, allItems.length)), 0);
+          const following = normalizeItems(next, 0);
+          if (first.length && following.length && first.map((x) => `${x.uri}|${x.uid}`).join(',') === following.map((x) => `${x.uri}|${x.uid}`).join(',')) {
+            throw new Error('PlaylistAPI ignored pagination offset');
+          }
+          allItems.push(...next);
+          offset += next.length;
+        }
+        if (allItems.length < total) throw new Error(`PlaylistAPI incomplete: ${allItems.length}/${total}`);
+      }
+      const tracks = normalizeItems(allItems, 0);
+      if (tracks.length || allItems.length === 0) return tracks;
       errors.push(`${String(argument).startsWith('spotify:') ? 'URI' : 'ID'} returned no playable tracks`);
     } catch (error) {
       errors.push(error?.message || String(error));
@@ -84,6 +108,7 @@ async function fetchPlaylistViaGraphQL(playlistId) {
     try {
       const tracks = [];
       let offset = 0;
+      let complete = false;
       for (let page = 0; page < 200; page += 1) {
         const variables = buildGraphQLVariables(definition, playlistUri, playlistId, offset, PAGE_SIZE);
         const response = await state.S.GraphQL.Request(definition, variables, { persistCache: true });
@@ -93,10 +118,11 @@ async function fetchPlaylistViaGraphQL(playlistId) {
           ['data', 'playlistV2', 'content', 'totalCount'],
           ['playlistV2', 'content', 'totalCount'],
         ]) ?? NaN);
-        if (!items.length || items.length < PAGE_SIZE || (Number.isFinite(total) && offset + items.length >= total)) break;
+        if (!items.length || items.length < PAGE_SIZE || (Number.isFinite(total) && offset + items.length >= total)) { complete = true; break; }
         offset += items.length;
       }
-      if (tracks.length) return tracks;
+      if (tracks.length && complete) return tracks;
+      if (!complete) throw new Error('GraphQL playlist pagination reached the safety limit');
       failures.push(`${name}: no playable tracks`);
     } catch (error) {
       failures.push(`${name}: ${error?.message || error}`);

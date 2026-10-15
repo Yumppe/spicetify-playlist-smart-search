@@ -21,6 +21,8 @@ export const state = {
   resultsSentinel: null,
   resultsObserver: null,
   renderedCount: 0,
+  resultsRenderedTracks: null,
+  resultsRenderedQuery: '',
   playbackSession: null,
   playbackMaintenanceInFlight: false,
   playbackBusy: false,

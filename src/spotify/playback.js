@@ -17,6 +17,7 @@ import {
   queueItemUri,
   randomStartIndex,
 } from './queue-model.js';
+import { inspectQueueChange, tracksForQueueUris } from './queue-reconcile.js';
 
 function playerQueueController() {
   return state.S?.Platform?.PlayerAPI?._queue ?? null;
@@ -138,6 +139,7 @@ async function reseedNativeQueueTail(session, { allowEmpty = false } = {}) {
   await setNativeUpcoming({ contextTracks: remaining, session });
   session.refillCount += 1;
   session.lastNativeReseedAt = Date.now();
+  session.lastQueueWriteAt = Date.now();
   recordDiagnostic('queue-reseed', `context=${remaining.length}; manual=${currentManualQueueTracks().length}; repeat=${spotifyRepeatMode()}; shuffle=${session.shuffle}`);
 }
 
@@ -177,6 +179,10 @@ async function playWithNativeSetQueue(plan, shuffle) {
     lastContextUri: selected.uri,
     refillCount: 0,
     manualQueueUris: new Set(preservedManual.map((track) => track.uri)),
+    queueReady: false,
+    userEditedQueue: false,
+    queueIntentUntil: 0,
+    lastQueueWriteAt: 0,
   };
   state.playbackSession = session;
 
@@ -195,11 +201,16 @@ async function playWithNativeSetQueue(plan, shuffle) {
     session,
     manualTracks: preservedManual,
   });
+  session.queueReady = true;
+  session.lastQueueWriteAt = Date.now();
 
   for (const delay of [80, 260]) {
     await sleep(delay);
     if (!session.active) break;
-    if (nativeQueueDiverged(session)) await reseedNativeQueueTail(session, { allowEmpty: true });
+    // Playback is already active; let the maintenance loop identify Spotify's
+    // eventual queue state before considering any repair. Avoid overwriting a
+    // queue edit made immediately after Play.
+    if (nativeQueueDiverged(session)) recordDiagnostic('queue-handoff-drift', 'waiting to reconcile');
   }
 }
 
@@ -220,7 +231,7 @@ async function enqueueTracks(tracks) {
 
 async function refillSlidingQueue(force = false) {
   const session = state.playbackSession;
-  if (!session?.active || session.method !== 'sliding-addToQueue') return;
+  if (!session?.active || session.method !== 'sliding-addToQueue' || session.userEditedQueue) return;
   const repeatMode = spotifyRepeatMode();
   const remainingBuffered = Math.max(0, session.nextEnqueueIndex - session.currentIndex - 1);
   if (!force && remainingBuffered > PLAYBACK_BUFFER_LOW_WATER) return;
@@ -264,6 +275,7 @@ async function playWithSlidingQueue(plan, shuffle) {
     lastContextUri: selected.uri,
     refillCount: 0,
     manualQueueUris: new Set(manualTracks.map((track) => track.uri)),
+    userEditedQueue: false,
   };
   state.playbackSession = session;
   if (manualTracks.length) await enqueueTracks(manualTracks);
@@ -299,6 +311,8 @@ function rebuildSessionForShuffle(session, shuffle, currentUri, currentIsManual)
   const sourceIndex = currentResultIndexInFiltered(anchorUri);
   if (sourceIndex < 0) return false;
   const plan = playbackPlan(state.filtered, sourceIndex, shuffle);
+  // Preserve user rearrangements instead of regenerating the queue on shuffle.
+  if (session.userEditedQueue) { session.shuffle = shuffle; return false; }
   session.sequence = plan.cycle;
   session.currentIndex = plan.startIndex;
   session.nextEnqueueIndex = plan.cycle.length;
@@ -307,6 +321,47 @@ function rebuildSessionForShuffle(session, shuffle, currentUri, currentIsManual)
   session.lastContextUri = anchorUri;
   recordDiagnostic('shuffle-sync', shuffle ? 'enabled; new randomized Smart Search order' : 'disabled; restored visible Smart Search order');
   return true;
+}
+
+/** The currently visible Spotify queue is authoritative after a user edit. */
+function preserveUserQueueChanges(session) {
+  if (session.method !== 'native-setQueue' || !session.queueReady || session.userEditedQueue) return false;
+  const nextUp = playerQueueController()?._queueState?.nextUp;
+  if (!Array.isArray(nextUp)) return false;
+  // Spotify can expose a partial window of the upcoming queue. Compare only
+  // what it exposes; don't mistake truncated pagination for user removal.
+  const expected = expectedContextTail(session);
+  const actualUris = nativeContextUpcomingUris();
+  const expectedUris = expected.map((track) => track.uri);
+  const change = inspectQueueChange(expectedUris, actualUris);
+  if (change.kind === 'same') return false;
+  const userIntent = Date.now() < (session.queueIntentUntil || 0);
+  const initialSettle = Date.now() - (session.lastQueueWriteAt || 0) < 900;
+  if (initialSettle && !userIntent) return false;
+  const isTruncatedWindow = expectedUris.length > actualUris.length
+    && expectedUris.slice(0, actualUris.length).every((uri, index) => uri === actualUris[index])
+    && !userIntent && expectedUris.length > 75;
+  if (isTruncatedWindow) return false;
+  if (change.kind === 'removed' || change.kind === 'reordered') {
+    const updatedTail = tracksForQueueUris(expected, actualUris);
+    if (updatedTail !== null) {
+      // The next Up Next list is now the authoritative filtered-playback tail.
+      // Preserve prior history and remove only the selected occurrences.
+      session.sequence = [...session.sequence.slice(0, session.currentIndex + 1), ...updatedTail];
+      session.nextEnqueueIndex = session.sequence.length;
+      session.userEditedQueue = true;
+      recordDiagnostic('queue-user-edit', `${change.kind}; removed=${change.removed.length}; next=${updatedTail.length}`);
+      return true;
+    }
+  }
+  // A new context, external queue insertions, or unknown mutations should
+  // never be "repaired" by silently overwriting Spotify's current queue.
+  if (!initialSettle && change.kind === 'other-change') {
+    session.userEditedQueue = true;
+    recordDiagnostic('queue-external-change', `preserving ${actualUris.length} upcoming items`);
+    return true;
+  }
+  return false;
 }
 
 export async function maintainPlaybackSession(reason = 'poll') {
@@ -319,6 +374,12 @@ export async function maintainPlaybackSession(reason = 'poll') {
     if (!currentUri) return;
     let index = findSessionIndexForUri(session, currentUri, reason === 'songchange');
     const manualCurrent = currentTrackIsManualQueue(session, currentUri, index);
+    // Detect queue edits before handling Shuffle: toggling Shuffle must not
+    // accidentally overwrite an edit which Spotify has just reported.
+    if (!manualCurrent && index >= 0 && session.method === 'native-setQueue') {
+      session.currentIndex = index;
+      preserveUserQueueChanges(session);
+    }
 
     const shuffleNow = spotifyShuffleState();
     if (shuffleNow !== Boolean(session.shuffle)) {
@@ -348,6 +409,7 @@ export async function maintainPlaybackSession(reason = 'poll') {
 
     if (session.method === 'sliding-addToQueue') await refillSlidingQueue(false);
     if (session.method === 'native-setQueue') {
+      preserveUserQueueChanges(session);
       const repeatMode = spotifyRepeatMode();
       const logicalRemaining = Math.max(0, session.sequence.length - index - 1);
       const upcoming = queueContextUpcomingCount();
@@ -357,7 +419,8 @@ export async function maintainPlaybackSession(reason = 'poll') {
         && logicalRemaining > PLAYBACK_BUFFER_LOW_WATER
         && upcoming <= PLAYBACK_BUFFER_LOW_WATER;
       const contextWasRegenerated = nativeQueueDiverged(session);
-      if (cooldownDone && (repeatNeedsWrap || needsRefill || contextWasRegenerated)) {
+      if (!session.userEditedQueue && !session.playbackIntentPending && Date.now() - session.startedAt > 1600
+        && cooldownDone && (repeatNeedsWrap || needsRefill || contextWasRegenerated)) {
         await reseedNativeQueueTail(session, { allowEmpty: contextWasRegenerated });
       }
     }
@@ -450,4 +513,19 @@ function interceptPlaylistPlay(event) {
 
 export function installPlaybackBridge() {
   document.addEventListener('click', interceptPlaylistPlay, true);
+  // Observe but never cancel queue operations. This makes explicit "Remove
+  // from queue" actions authoritative even when Spotify's nextUp is a window.
+  document.addEventListener('click', (event) => {
+    const session = state.playbackSession;
+    if (!session?.active) return;
+    const element = event.target?.closest?.('button, [role="menuitem"]');
+    const label = `${element?.getAttribute?.('aria-label') || ''} ${element?.textContent || ''}`.toLowerCase();
+    if (/remove from queue|remove from next|quitar de la cola|eliminar de la cola|retirer de la file|aus warteschlange entfernen/.test(label)) {
+      session.queueIntentUntil = Date.now() + 4000;
+      if (session.method === 'sliding-addToQueue') {
+        session.userEditedQueue = true;
+        recordDiagnostic('queue-user-edit', 'compatibility queue: user removed upcoming tracks');
+      }
+    }
+  }, true);
 }

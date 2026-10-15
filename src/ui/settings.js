@@ -1,4 +1,5 @@
 import { BUG_REPORT_URL, FEATURE_REQUEST_URL, PROJECT_URL, VERSION } from '../constants.js';
+import { createLogoImage } from '../branding.js';
 import { state } from '../state.js';
 import { loadConfig, updateConfig } from '../config.js';
 import { SYNTAX_REFERENCE, parseQuery } from '../search/parser.js';
@@ -6,9 +7,31 @@ import { capabilityRows } from '../spotify/capabilities.js';
 import { copyDiagnostics, diagnosticsText } from '../diagnostics.js';
 import { emit, on } from '../events.js';
 import { showReleaseNotes } from '../release-notes.js';
-import { consoleWarn } from '../utils.js';
+import { clearSyntaxHelp } from './syntax-help.js';
+import { consoleWarn, safeErrorMessage } from '../utils.js';
 
 let settingsMenuItem = null;
+
+function buildBrandHeader() {
+  const header = document.createElement('div');
+  header.className = 'ss1-brand-header';
+  const logo = document.createElement('div');
+  logo.className = 'ss1-brand-logo-wrap';
+  logo.appendChild(createLogoImage('ss1-logo-image ss1-logo-image-settings', ''));
+  logo.setAttribute('aria-hidden', 'true');
+  const text = document.createElement('div');
+  text.className = 'ss1-brand-copy';
+  const title = document.createElement('div');
+  title.className = 'ss1-brand-title';
+  title.textContent = 'Smart Search';
+  const subtitle = document.createElement('div');
+  subtitle.className = 'ss1-brand-subtitle';
+  subtitle.textContent = 'Advanced playlist search and playback controls.';
+  text.append(title, subtitle);
+  header.append(logo, text);
+  return header;
+}
+
 
 function createSettingsToggle(parent, title, description, key) {
   const row = document.createElement('div'); row.className = 'ss1-settings-row';
@@ -19,7 +42,6 @@ function createSettingsToggle(parent, title, description, key) {
   const toggle = document.createElement('button'); toggle.className = 'ss1-toggle'; toggle.type = 'button'; toggle.setAttribute('role', 'switch');
   const refresh = () => {
     const value = Boolean(loadConfig()[key]);
-    toggle.setAttribute('aria-pressed', String(value));
     toggle.setAttribute('aria-checked', String(value));
     toggle.setAttribute('aria-label', `${title}: ${value ? 'on' : 'off'}`);
   };
@@ -155,7 +177,7 @@ function buildDiagnosticsPanel() {
       const copied = await copyDiagnostics();
       setFeedback(feedback, copied ? 'Diagnostics copied to the clipboard.' : 'Clipboard access is unavailable.', copied ? 'ok' : 'warn');
     } catch (error) {
-      setFeedback(feedback, `Could not copy diagnostics: ${error?.message || error}`, 'error');
+      setFeedback(feedback, `Could not copy diagnostics: ${safeErrorMessage(error)}`, 'error');
     } finally {
       setBusy(copy, false, 'Copying…', 'Copy diagnostics');
     }
@@ -261,8 +283,11 @@ function buildSupportPanel() {
 }
 
 export function showSettings() {
+  clearSyntaxHelp();
+  state.nativeSearchInput?.blur?.();
   const content = document.createElement('div');
   content.className = 'ss1-settings';
+  content.appendChild(buildBrandHeader());
   createSettingsToggle(content, 'Enabled', 'Use Smart Search on playlist pages.', 'enabled');
   createSettingsToggle(content, 'Live playlist refresh', 'Update Smart Search after tracks are added or removed.', 'livePlaylistRefresh');
   createSettingsToggle(content, 'Collapse results by default', 'Keep Smart Search results compact until you expand them.', 'resultsCollapsed');

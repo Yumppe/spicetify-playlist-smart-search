@@ -4,6 +4,17 @@ import { normalizeText } from '../utils.js';
 
 const boundInputs = new WeakSet();
 
+function separatorPosition(value) {
+  let escaped = false, last = -1;
+  for (let i = 0; i < value.length; i++) {
+    if (escaped) { escaped = false; continue; }
+    if (value[i] === '\\') { escaped = true; continue; }
+    if (value[i] === ';' || value[i] === '&') last = i;
+  }
+  return last;
+}
+
+
 
 function bindInputLifecycle(input) {
   if (!input || boundInputs.has(input)) return;
@@ -11,10 +22,18 @@ function bindInputLifecycle(input) {
   input.addEventListener('focus', () => {
     queueMicrotask(() => maintainSyntaxHelp());
   });
+  input.addEventListener('keydown', (event) => {
+    const host = state.syntaxHelpHost;
+    if (!host || host.hidden || event.key !== 'ArrowDown') return;
+    const button = host.querySelector('button');
+    if (!button) return;
+    event.preventDefault();
+    button.focus();
+  });
   input.addEventListener('blur', () => {
     // Suggestion clicks keep the input focused. Hide help once focus really leaves.
     setTimeout(() => {
-      if (document.activeElement !== input) clearSyntaxHelp();
+      if (document.activeElement !== input && !state.syntaxHelpHost?.contains(document.activeElement)) clearSyntaxHelp();
     }, 0);
   });
 }
@@ -29,7 +48,7 @@ function ensureHost() {
   host = document.createElement('div');
   host.className = 'ss1-syntax-assist';
   host.hidden = true;
-  host.setAttribute('role', 'listbox');
+  host.setAttribute('role', 'group');
   host.setAttribute('aria-label', 'Smart Search suggestions');
   document.body.appendChild(host);
   state.syntaxHelpHost = host;
@@ -38,9 +57,7 @@ function ensureHost() {
 
 function replaceActiveSegment(input, replacement) {
   const value = String(input.value || '');
-  const lastSemicolon = value.lastIndexOf(';');
-  const lastAmp = value.lastIndexOf('&');
-  const separatorIndex = Math.max(lastSemicolon, lastAmp);
+  const separatorIndex = separatorPosition(value);
   const prefix = separatorIndex >= 0 ? value.slice(0, separatorIndex + 1) : '';
   const whitespace = value.slice(separatorIndex + 1).match(/^\s*/)?.[0] ?? '';
   input.value = `${prefix}${whitespace}${replacement}`;
@@ -49,9 +66,7 @@ function replaceActiveSegment(input, replacement) {
 }
 
 function artistSuggestions(query) {
-  const lastSemicolon = query.lastIndexOf(';');
-  const lastAmp = query.lastIndexOf('&');
-  const segment = query.slice(Math.max(lastSemicolon, lastAmp) + 1).trimStart();
+  const segment = query.slice(separatorPosition(query) + 1).trimStart();
   if (!segment.startsWith('@')) return [];
   const needle = normalizeText(segment.slice(1).trim());
   if (!needle) return [];
@@ -110,7 +125,9 @@ function positionHost(host, input) {
 
 function render(host, input) {
   host.replaceChildren();
-  const query = String(state.query || input.value || '');
+  const query = String(input.value || state.query || '');
+  if (host.dataset.renderedQuery === query && host.childElementCount) { positionHost(host, input); host.hidden = false; return; }
+  host.dataset.renderedQuery = query;
   const suggestions = syntaxSuggestions(query);
   if (!suggestions.length) { host.hidden = true; return; }
 
@@ -129,7 +146,16 @@ function render(host, input) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'ss1-syntax-assist-item';
-    button.setAttribute('role', 'option');
+    button.setAttribute('aria-label', `${item.label}: ${item.hint}`);
+    button.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') { event.preventDefault(); clearSyntaxHelp(); input.focus(); return; }
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+      event.preventDefault();
+      const buttons = [...list.querySelectorAll('button')];
+      const index = buttons.indexOf(button);
+      const next = index + (event.key === 'ArrowDown' ? 1 : -1);
+      if (next < 0 || next >= buttons.length) input.focus(); else buttons[next].focus();
+    });
     const code = document.createElement('code');
     code.textContent = item.label;
     const hint = document.createElement('span');
@@ -157,7 +183,7 @@ export function maintainSyntaxHelp() {
   const input = currentInput();
   const config = loadConfig();
   if (input) bindInputLifecycle(input);
-  if (!config.enabled || !config.showSyntaxHelp || !input || !state.query.trim() || document.activeElement !== input) {
+  if (!config.enabled || !config.showSyntaxHelp || !input || !state.query.trim() || (document.activeElement !== input && !host.contains(document.activeElement))) {
     host.hidden = true;
     return;
   }
@@ -165,5 +191,5 @@ export function maintainSyntaxHelp() {
 }
 
 export function clearSyntaxHelp() {
-  if (state.syntaxHelpHost) state.syntaxHelpHost.hidden = true;
+  if (state.syntaxHelpHost) { state.syntaxHelpHost.hidden = true; state.syntaxHelpHost.dataset.renderedQuery = ''; }
 }

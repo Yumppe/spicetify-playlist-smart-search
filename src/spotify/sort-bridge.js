@@ -2,12 +2,12 @@ import { state } from '../state.js';
 import { findPlaylistPage } from '../ui/dom.js';
 
 const SORT_KEYS = {
-  custom: ['custom order', 'playlist order'],
-  title: ['title', 'track title'],
-  artist: ['artist'],
-  album: ['album'],
-  added: ['recently added', 'date added', 'added'],
-  duration: ['duration', 'time'],
+  custom: ['custom order', 'playlist order', 'orden personalizado', 'orden de la playlist', 'ordre personnalisé', 'benutzerdefiniert'],
+  title: ['title', 'track title', 'título', 'titre', 'titel', 'faixa'],
+  artist: ['artist', 'artista', 'artiste', 'künstler'],
+  album: ['album', 'álbum'],
+  added: ['recently added', 'date added', 'added', 'fecha añadida', 'añadido recientemente', 'date d’ajout', 'hinzugefügt', 'adicionado'],
+  duration: ['duration', 'time', 'duración', 'durée', 'dauer', 'duração'],
 };
 
 function normalizeLabel(value) {
@@ -55,8 +55,8 @@ function readSortControl(page) {
     if (!key) continue;
     const lower = normalizeLabel(combined);
     let direction = null;
-    if (/descending|newest|latest/.test(lower)) direction = 'desc';
-    else if (/ascending|oldest/.test(lower)) direction = 'asc';
+    if (/descending|newest|latest|descendente|récents|neueste/.test(lower)) direction = 'desc';
+    else if (/ascending|oldest|ascendente|anciens|älteste/.test(lower)) direction = 'asc';
     // Spotify shows Recently added newest-first by default.
     if (!direction) direction = key === 'added' ? 'desc' : 'asc';
     return { key, direction, source: 'sort-control' };

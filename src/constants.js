@@ -1,6 +1,6 @@
-export const VERSION = '1.1';
+export const VERSION = '1.2';
 export const RELEASE_SEEN_KEY = 'smart-search:last-seen-release';
-export const RELEASE_NOTES_REVISION = 3;
+export const RELEASE_NOTES_REVISION = 7;
 export const CONFIG_KEY = 'smart-search-config-v2';
 export const PROJECT_URL = 'https://github.com/Yumppe/spicetify-playlist-smart-search';
 export const CHANGELOG_URL = `${PROJECT_URL}/blob/main/CHANGELOG.md`;

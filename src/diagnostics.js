@@ -46,6 +46,7 @@ export function diagnosticsSnapshot() {
     playbackIndex: session?.currentIndex ?? null,
     playbackSequenceLength: session?.sequence?.length ?? 0,
     playbackShuffle: session?.shuffle ?? null,
+    queueEditedByUser: Boolean(session?.userEditedQueue),
     spotifySort: state.sortState,
     cacheEntries: state.cache.size,
     config: loadConfig(),

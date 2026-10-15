@@ -32,6 +32,10 @@ function isInsideNativeTracklist(mutation) {
   return Boolean(target && tracklist && (target === tracklist || tracklist.contains(target)));
 }
 
+export function looksLikePlaylistCountText(value) {
+  return /\b\d[\d,.\s]*\s+(?:songs?|tracks?|canciones?|temas?|titres?|morceaux|lieder|titel|faixas?|músicas?)\b/i.test(String(value).slice(0,300));
+}
+
 function mentionsPlaylistCount(mutation) {
   const target = elementForMutation(mutation);
   const candidates = [
@@ -39,7 +43,7 @@ function mentionsPlaylistCount(mutation) {
     ...[...(mutation.addedNodes ?? [])].map((node) => node.textContent || ''),
     ...[...(mutation.removedNodes ?? [])].map((node) => node.textContent || ''),
   ];
-  return candidates.some((text) => /\b\d[\d,.\s]*\s+(?:songs?|tracks?)\b/i.test(String(text).slice(0, 300)));
+  return candidates.some(looksLikePlaylistCountText);
 }
 
 function scheduleCandidateRefresh(reason = 'dom-mutation') {

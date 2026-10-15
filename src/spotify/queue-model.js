@@ -45,34 +45,23 @@ export function makeDelimiterQueueItem() {
   };
 }
 
-function pushUniqueTrack(target, seen, item) {
+function toTrack(item) {
   const uri = queueItemUri(item);
-  if (!uri) return;
-  const uid = queueItemUid(item);
-  const key = `${uri}|${uid}`;
-  if (seen.has(key)) return;
-  seen.add(key);
-  target.push({ uri, uid });
+  return uri ? { uri, uid: queueItemUid(item) } : null;
 }
 
 export function manualQueueTracks(queueState, queueCore = null) {
-  const tracks = [];
-  const seen = new Set();
-
-  // Prefer explicit queue markers when available; `queued` can briefly include context tracks.
-  const lowLevel = Array.isArray(queueCore?.nextTracks) ? queueCore.nextTracks : [];
-  for (const item of lowLevel) {
-    if (isExplicitQueueItem(item)) pushUniqueTrack(tracks, seen, item);
-  }
-
+  // The same queue may appear in both of Spotify's internal representations.
+  // Prefer the classified queueState (which preserves duplicates), or fall
+  // back to core.nextTracks; never deduplicate intentional repeated tracks.
   const queued = Array.isArray(queueState?.queued) ? queueState.queued : [];
-  const hasClassification = queued.some((item) => item?.provider != null || queueItemMetadata(item)?.is_queued != null);
-  for (const item of queued) {
-    // Older clients only expose the `queued` bucket, so membership is the fallback signal.
-    if (hasClassification && !isExplicitQueueItem(item)) continue;
-    pushUniqueTrack(tracks, seen, item);
-  }
-  return tracks;
+  const classified = queued.some((item) => item?.provider != null || queueItemMetadata(item)?.is_queued != null);
+  const explicit = queued.filter((item) => !classified || isExplicitQueueItem(item));
+  const core = Array.isArray(queueCore?.nextTracks) ? queueCore.nextTracks : [];
+  // An explicitly empty queued array means the user cleared their queue.
+  // Do not recover stale entries from core.nextTracks in that case.
+  const selected = Array.isArray(queueState?.queued) ? explicit : core.filter(isExplicitQueueItem);
+  return selected.map(toTrack).filter(Boolean);
 }
 
 export function buildNativeQueuePayload({

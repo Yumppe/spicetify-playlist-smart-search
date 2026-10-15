@@ -1,4 +1,5 @@
 import { RESULTS_HOST_ID, RENDER_CHUNK } from '../constants.js';
+import { createLogoImage } from '../branding.js';
 import { state } from '../state.js';
 import { loadConfig, updateConfig } from '../config.js';
 import { findPlaylistPage, findTracklistContainer, hideNativeTracklist, restoreNativeTracklist, setAdvancedViewState } from './dom.js';
@@ -50,11 +51,14 @@ export function ensureHost() {
         <div class="ss1-status" role="status" aria-live="polite" hidden></div>
         <div class="ss1-results"></div><div class="ss1-sentinel"></div>
       </div>
-      <div class="ss1-collapsed-note" hidden>Results are collapsed. Playback still uses the complete filtered result set.</div>
+      <div class="ss1-collapsed-note" hidden>Results are collapsed. Playback still uses the complete filtered result set.<div class="ss1-collapsed-error" role="alert" hidden></div></div>
     </div>`;
+    const mark = host.querySelector('.ss1-smart-dot');
+    if (mark) mark.replaceChildren(createLogoImage('ss1-logo-image ss1-logo-image-inline', ''));
     anchorParent.insertBefore(host, tracklist || null);
     state.resultsHost = host;
     state.resultsList = host.querySelector('.ss1-results');
+    state.resultsList?.setAttribute('role', 'list');
     state.resultsSentinel = host.querySelector('.ss1-sentinel');
     host.querySelector('[data-action="play"]')?.addEventListener('click', () => void playFilteredRespectingSpotify());
     host.querySelector('[data-action="collapse"]')?.addEventListener('click', () => {
@@ -79,6 +83,7 @@ function createResultRow(track, resultIndex) {
   const row = document.createElement('div');
   row.className = 'ss1-row';
   row.tabIndex = 0;
+  row.setAttribute('role', 'listitem');
   row.dataset.uri = track.uri;
   row.dataset.resultIndex = String(resultIndex);
   row.setAttribute('aria-label', `${track.title} — ${track.artists.join(', ')}`);
@@ -106,7 +111,7 @@ function createResultRow(track, resultIndex) {
   row.append(number, titleCell, album, added, duration);
   row.addEventListener('dblclick', () => void playFilteredRespectingSpotify(resultIndex));
   row.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
+    if (event.target === row && (event.key === 'Enter' || event.key === ' ')) {
       event.preventDefault();
       void playFilteredRespectingSpotify(resultIndex);
     }
@@ -142,12 +147,15 @@ export function updatePlaybackUi() {
   if (!host) return;
   const play = host.querySelector('[data-action="play"]');
   const progress = host.querySelector('.ss1-progress');
-  const disabled = state.playbackBusy || !state.filtered.length || state.queryErrors.length > 0;
+  const disabled = state.playbackBusy || state.loading || !state.filtered.length || state.queryErrors.length > 0;
   if (play) { play.disabled = disabled; play.textContent = state.playbackBusy ? 'Starting…' : '▶ Play results'; }
   if (progress) {
     const session = state.playbackSession;
     const belongs = session?.active && session.query === state.query && session.sequence.length > 0 && state.filtered.length > 0;
-    progress.textContent = belongs && session.currentIndex >= 0 ? `· Playing ${Math.min(session.currentIndex + 1, session.sequence.length)}/${session.sequence.length}` : '';
+    const playing = belongs && session.currentIndex >= 0
+      ? `· Playing ${Math.min(session.currentIndex + 1, session.sequence.length)}/${session.sequence.length}` : '';
+    progress.textContent = session?.active && session.userEditedQueue
+      ? `${playing} · Up Next edits kept` : playing;
   }
   updatePlayingRowStyles();
 }
@@ -171,6 +179,8 @@ export function renderSmartSearch(config = loadConfig()) {
   const count = host.querySelector('.ss1-count');
   const collapsedNote = host.querySelector('.ss1-collapsed-note');
   const collapse = host.querySelector('[data-action="collapse"]');
+  const collapsedError = host.querySelector('.ss1-collapsed-error');
+  if (collapsedError) { collapsedError.hidden = !state.queryErrors.length; collapsedError.textContent = state.queryErrors.join(' '); }
   host.hidden = !active;
   if (!active) {
     if (toolbar) toolbar.hidden = true;
@@ -210,7 +220,11 @@ export function renderSmartSearch(config = loadConfig()) {
     } else if (!state.filtered.length) {
       if (status) { status.hidden = false; status.textContent = 'No matching tracks'; }
     }
-    resetRenderedResults();
+    if (state.resultsRenderedTracks !== state.filtered || state.resultsRenderedQuery !== state.query) {
+      resetRenderedResults();
+      state.resultsRenderedTracks = state.filtered;
+      state.resultsRenderedQuery = state.query;
+    }
   }
   updatePlaybackUi();
 }
@@ -220,5 +234,6 @@ export function clearResultsUi() {
   state.resultsHost = null; state.resultsList = null; state.resultsSentinel = null;
   try { state.resultsObserver?.disconnect(); } catch {}
   state.resultsObserver = null; state.renderedCount = 0;
+  state.resultsRenderedTracks = null; state.resultsRenderedQuery = '';
   setAdvancedViewState(false);
 }

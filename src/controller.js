@@ -88,6 +88,8 @@ async function handleAdvancedInput({ input, value }) {
   }
 
   if (queryNeedsYearMetadata(parsed) && state.tracks.some((track) => track.year == null)) {
+    const requestId = (state.yearMetadataRequestId || 0) + 1;
+    state.yearMetadataRequestId = requestId;
     state.yearMetadataLoading = true;
     renderSmartSearch();
     try {
@@ -96,7 +98,7 @@ async function handleAdvancedInput({ input, value }) {
       state.lastYearMetadataSummary = { failed: true, message: safeErrorMessage(error) };
       consoleWarn('Could not load missing release years.', error);
     } finally {
-      state.yearMetadataLoading = false;
+      if (state.yearMetadataRequestId === requestId) state.yearMetadataLoading = false;
     }
     if (state.query !== value || !input?.isConnected) return;
     parsed = setSmartQuery(value);
